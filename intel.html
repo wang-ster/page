@@ -23,7 +23,7 @@
   <main class="stage sub">
     <section class="page frame">
       <div class="page-head">
-        <h1>INTEL<small>// LIVE CYBERSECURITY NEWS</small></h1>
+        <h1>INTEL<small id="sub">// CYBERSECURITY NEWS · LAST 7 DAYS</small></h1>
         <div class="filters" id="srcs"></div>
       </div>
       <div class="page-body"><div class="intel-list" id="list"><p class="loading">DECRYPTING FEED</p></div></div>
@@ -59,9 +59,20 @@
       </a>`).join('') || '<p class="note">No headlines right now.</p>';
   }
 
+  const sourceReport = srcs => (srcs || []).map(x =>
+    `<tr><td>${esc(x.source)}</td><td>${x.ok ? `<span class="stamp fulfilled">OK</span>` : `<span class="stamp denied">FAILED</span>`}</td>
+      <td>${x.ok ? x.count + ' in last 7 days' : esc(x.error || '')}</td></tr>`).join('');
   try {
-    items = (await Core.api('news')).items || [];
+    const res = await Core.api('news');
+    items = res.items || [];
+    const okSrc = (res.sources || []).filter(x => x.ok && x.count).length;
+    document.getElementById('sub').textContent = `// LAST ${res.days || 7} DAYS · ${items.length} HEADLINES${res.sources ? ` FROM ${okSrc} SOURCES` : ''}`;
     render();
+    if (!items.length){
+      list.innerHTML = `<p class="note">No headlines came back. Here is what each news source returned:</p>
+        ${res.sources ? `<div class="tbl-wrap"><table class="data"><tr><th>SOURCE</th><th>STATUS</th><th>DETAIL</th></tr>${sourceReport(res.sources)}</table></div>`
+          : '<p class="note">The server function is an older version. Redeploy <b>soc-api</b> from your repo.</p>'}`;
+    }
   } catch(e){
     list.innerHTML = `<p class="note">Intel feed offline: ${esc(e.message)}</p>`;
   }

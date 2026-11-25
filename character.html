@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Character Chart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>CHARACTER CHART<small id="sub">// DAILY CONDUCT GRADES</small></h1>
+        <div class="actions">
+          <input class="inp" type="date" id="day" style="width:auto">
+          <button class="btn green" id="sumBtn">END-OF-DAY SUMMARY</button>
+          <button class="btn ghost" id="rulesBtn">FACTORS &amp; RULES</button>
+        </div>
+      </div>
+      <div class="toolbar">
+        <input class="search" id="q" placeholder="> find student_" autocomplete="off">
+        <div class="cc-tally" id="tally"></div>
+      </div>
+      <p class="note" id="rules"></p>
+      <div class="page-body"><div class="cc-grid" id="grid"><p class="loading">LOADING ROSTER</p></div></div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script>
+(async () => {
+  await Core.init('CHARACTER', { ciso: true });
+  const { sb, esc, must, toast, modal, confirmBox } = Core;
+  const $ = s => document.getElementById(s);
+  const localDay = (d = new Date()) => d.toLocaleDateString('en-CA');      // YYYY-MM-DD in your time zone
+  const fmtPts = n => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n);
+
+  let students = [], factors = [], rules = { e_at: 3, u_at: -3 };
+  let events = [], days = {};                                             // for the selected day
+  let day = localDay(), q = '';
+  $('day').value = day;
+
+  /* ---------- grading rules ---------- */
+  const scoreOf = id => events.filter(e => e.user_id === id).reduce((s, e) => s + e.points, 0);
+  function gradeOf(id){
+    const d = days[id] || {};
+    if (d.attendance) return d.attendance;                               // A or A/x
+    if (d.override) return d.override;
+    const s = scoreOf(id);
+    return s >= rules.e_at ? 'E' : s <= rules.u_at ? 'U' : 'S';
+  }
+  const gradeClass = g => ({ 'E':'g-e', 'S':'g-s', 'U':'g-u', 'A':'g-a', 'A/x':'g-ax' })[g];
+
+  /* ---------- load ---------- */
+  async function loadStatic(){
+    students = must(await sb.from('profiles').select('id,username,display_name').eq('role', 'analyst'));
+    students.sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username));
+    factors = must(await sb.from('character_factors').select('*').eq('active', true).order('sort'));
+    rules = must(await sb.from('character_settings').select('*').eq('id', 1).maybeSingle()) || rules;
+  }
+  async function loadDay(){
+    events = must(await sb.from('character_events').select('*').eq('day', day).order('created_at'));
+    days = Object.fromEntries(must(await sb.from('character_days').select('*').eq('day', day)).map(d => [d.user_id, d]));
+  }
+
+  /* ---------- render ---------- */
+  function render(){
+    const isToday = day === localDay();
+    $('sub').textContent = `// ${isToday ? 'TODAY · ' : ''}${new Date(day + 'T12:00').toLocaleDateString(undefined, { weekday:'long', month:'short', day:'numeric', year:'numeric' }).toUpperCase()}`;
+    $('rules').innerHTML = `Everyone starts at <b>S</b> with 0 points. <b>${fmtPts(rules.e_at)}</b> or more → <b>E</b> · <b>${fmtPts(rules.u_at)}</b> or less → <b>U</b>. Absences (<b>A</b>, <b>A/x</b>) and manual overrides replace the points grade.`;
+    const counts = { E:0, S:0, U:0, A:0, 'A/x':0 };
+    students.forEach(s => counts[gradeOf(s.id)]++);
+    $('tally').innerHTML = Object.entries(counts).map(([g, n]) => `<span class="cc-chip ${gradeClass(g)}">${g} <b>${n}</b></span>`).join('');
+
+    const list = students.filter(s => !q || `${s.display_name} ${s.username}`.toLowerCase().includes(q));
+    $('grid').innerHTML = list.map(s => {
+      const g = gradeOf(s.id), d = days[s.id] || {}, pts = scoreOf(s.id), n = events.filter(e => e.user_id === s.id).length;
+      return `
+      <article class="cc frame sm ${gradeClass(g)}" data-id="${s.id}">
+        <div class="cc-top">
+          <div><h3>${esc(s.display_name || s.username)}</h3><span class="muted">${esc(s.username)}</span></div>
+          <div class="cc-grade">${g}</div>
+        </div>
+        <div class="cc-score">${fmtPts(pts)} PTS · ${n} MARK${n === 1 ? '' : 'S'}${d.override && !d.attendance ? ' · OVERRIDE' : ''}</div>
+        <div class="cc-factors">${factors.map(f =>
+          `<button class="cc-f ${f.points > 0 ? 'pos' : 'neg'}" data-f="${f.id}" title="${esc(f.label)}">${fmtPts(f.points)} ${esc(f.label)}</button>`).join('')}</div>
+        <div class="cc-foot">
+          <button class="fchip ${d.attendance === 'A' ? 'on' : ''}" data-att="A" title="Absent">A</button>
+          <button class="fchip ${d.attendance === 'A/x' ? 'on' : ''}" data-att="A/x" title="Excused absence">A/x</button>
+          <select class="inp tiny" data-ovr title="Manual override" style="width:92px">
+            <option value="">AUTO</option>${['E','S','U'].map(x => `<option ${d.override === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
+          <button class="btn sm ghost" data-undo ${n ? '' : 'disabled'}>UNDO</button>
+          <button class="btn sm ghost" data-log>LOG</button>
+        </div>
+      </article>`;
+    }).join('') || `<p class="note">${students.length ? 'No students match.' : 'No students yet. Add them in Console → Operators.'}</p>`;
+    wire();
+  }
+
+  /* ---------- actions ---------- */
+  async function setDay(id, patch){
+    const row = { ...(days[id] || { user_id: id, day }), ...patch, user_id: id, day };
+    must(await sb.from('character_days').upsert(row));
+    days[id] = row;
+  }
+  function wire(){
+    document.querySelectorAll('.cc[data-id]').forEach(card => {
+      const id = card.dataset.id, s = students.find(x => x.id === id);
+      card.querySelectorAll('[data-f]').forEach(b => b.onclick = async () => {
+        const f = factors.find(x => x.id === b.dataset.f);
+        try {
+          const row = must(await sb.from('character_events').insert({ user_id: id, day, label: f.label, points: f.points }).select().single());
+          events.push(row); render();
+          const c = document.querySelector(`.cc[data-id="${id}"]`);        // quick flash instead of a pop-up
+          if (c){ c.classList.add(f.points > 0 ? 'flash-pos' : 'flash-neg'); c.querySelector('.cc-score').textContent += ` · LAST: ${fmtPts(f.points)} ${f.label.toUpperCase()}`; }
+        } catch(e){ toast('ERROR', e.message); }
+      });
+      card.querySelectorAll('[data-att]').forEach(b => b.onclick = async () => {
+        const v = b.dataset.att;
+        try { await setDay(id, { attendance: (days[id] || {}).attendance === v ? null : v }); render(); }
+        catch(e){ toast('ERROR', e.message); }
+      });
+      card.querySelector('[data-ovr]').onchange = async e => {
+        try { await setDay(id, { override: e.target.value || null }); render(); } catch(err){ toast('ERROR', err.message); }
+      };
+      card.querySelector('[data-undo]').onclick = async () => {
+        const last = events.filter(e => e.user_id === id).at(-1); if (!last) return;
+        try { must(await sb.from('character_events').delete().eq('id', last.id)); events = events.filter(e => e.id !== last.id); render();
+              toast('UNDONE', `${fmtPts(last.points)} ${last.label}`); }
+        catch(e){ toast('ERROR', e.message); }
+      };
+      card.querySelector('[data-log]').onclick = () => showLog(s);
+    });
+  }
+
+  function showLog(s){
+    const mine = events.filter(e => e.user_id === s.id);
+    const d = days[s.id] || {};
+    const m = modal(`<h3>${esc(s.display_name || s.username)} · ${day}</h3>
+      <p class="note">Grade: <b>${gradeOf(s.id)}</b> · Points: <b>${fmtPts(scoreOf(s.id))}</b></p>
+      <div class="tbl-wrap"><table class="data"><tr><th>TIME</th><th>FACTOR</th><th>POINTS</th><th></th></tr>
+      ${mine.map(e => `<tr data-e="${e.id}"><td>${new Date(e.created_at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}</td>
+        <td>${esc(e.label)}</td><td>${fmtPts(e.points)}</td><td><button class="btn sm red" data-del>REMOVE</button></td></tr>`).join('')
+        || '<tr><td colspan="4" class="muted">No marks today.</td></tr>'}</table></div>
+      <label class="lbl">NOTE (OPTIONAL, SHOWS ON SUMMARY)</label><input class="inp" id="note" value="${esc(d.note || '')}">
+      <div class="modal-actions"><button class="btn green" id="saveNote">SAVE NOTE</button></div>`);
+    m.el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      const eid = b.closest('tr').dataset.e;
+      try { must(await sb.from('character_events').delete().eq('id', eid)); events = events.filter(e => e.id !== eid); m.close(); render(); showLog(s); }
+      catch(e){ toast('ERROR', e.message); }
+    });
+    m.el.querySelector('#saveNote').onclick = async () => {
+      try { await setDay(s.id, { note: m.el.querySelector('#note').value.trim() || null }); m.close(); toast('NOTE SAVED'); }
+      catch(e){ toast('ERROR', e.message); }
+    };
+  }
+
+  /* ---------- end-of-day summary ---------- */
+  function summaryRows(){
+    return students.map(s => {
+      const mine = events.filter(e => e.user_id === s.id), tally = {};
+      mine.forEach(e => { const k = `${fmtPts(e.points)} ${e.label}`; tally[k] = (tally[k] || 0) + 1; });
+      return { name: s.display_name || s.username, username: s.username, grade: gradeOf(s.id), points: scoreOf(s.id),
+               marks: Object.entries(tally).map(([k, n]) => n > 1 ? `${k} ×${n}` : k).join('; '), note: (days[s.id] || {}).note || '' };
+    });
+  }
+  $('sumBtn').onclick = () => {
+    const rows = summaryRows();
+    const counts = { E:0, S:0, U:0, A:0, 'A/x':0 }; rows.forEach(r => counts[r.grade]++);
+    const m = modal(`<h3>CHARACTER CHART · ${day}</h3>
+      <div class="cc-tally" style="margin-bottom:12px">${Object.entries(counts).map(([g, n]) => `<span class="cc-chip ${gradeClass(g)}">${g} <b>${n}</b></span>`).join('')}</div>
+      <div class="tbl-wrap"><table class="data"><tr><th>STUDENT</th><th>GRADE</th><th>POINTS</th><th>WHY</th></tr>
+      ${rows.map(r => `<tr><td>${esc(r.name)}</td><td><span class="cc-chip ${gradeClass(r.grade)}"><b>${r.grade}</b></span></td>
+        <td>${fmtPts(r.points)}</td><td class="muted">${esc([r.marks, r.note].filter(Boolean).join(' · ')) || '—'}</td></tr>`).join('')}</table></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="copy">COPY NAMES + GRADES</button>
+        <button class="btn ghost" id="csv">DOWNLOAD CSV</button>
+        <button class="btn" id="print">PRINT</button>
+      </div>`, { wide: true });
+    m.el.querySelector('#copy').onclick = async () => {
+      const text = rows.map(r => `${r.name}\t${r.grade}`).join('\n');
+      try { await navigator.clipboard.writeText(text); toast('COPIED', 'Paste into your gradebook or a spreadsheet.'); }
+      catch(e){ const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); toast('COPIED'); }
+    };
+    m.el.querySelector('#csv').onclick = () => {
+      const cell = v => `"${String(v).replace(/"/g, '""')}"`;
+      const csv = [['Date','Student','Username','Grade','Points','Marks','Note'], ...rows.map(r => [day, r.name, r.username, r.grade, r.points, r.marks, r.note])]
+        .map(r => r.map(cell).join(',')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `character-chart-${day}.csv`; a.click();
+    };
+    m.el.querySelector('#print').onclick = () => {
+      const w = window.open('', '_blank');
+      w.document.write(`<title>Character Chart ${day}</title><style>body{font:14px Arial;margin:24px}table{border-collapse:collapse;width:100%}
+        td,th{border:1px solid #999;padding:6px 8px;text-align:left}th{background:#eee}</style>
+        <h2>Character Chart · ${day}</h2><p>${Object.entries(counts).map(([g, n]) => `${g}: ${n}`).join(' &nbsp; ')}</p>
+        <table><tr><th>Student</th><th>Grade</th><th>Points</th><th>Marks / note</th></tr>
+        ${rows.map(r => `<tr><td>${esc(r.name)}</td><td><b>${r.grade}</b></td><td>${fmtPts(r.points)}</td><td>${esc([r.marks, r.note].filter(Boolean).join(' · '))}</td></tr>`).join('')}</table>`);
+      w.document.close(); w.focus(); w.print();
+    };
+  };
+
+  /* ---------- factors & rules editor ---------- */
+  $('rulesBtn').onclick = async () => {
+    const all = must(await sb.from('character_factors').select('*').order('sort'));
+    const row = (f, isNew) => `<tr data-id="${f.id || ''}">
+      <td><input class="inp" data-k="label" value="${esc(f.label || '')}" placeholder="e.g. Helped a classmate"></td>
+      <td><input class="inp tiny" type="number" data-k="points" value="${f.points ?? 1}"></td>
+      <td><input type="checkbox" data-k="active" ${f.active !== false ? 'checked' : ''}></td>
+      <td><div class="actions"><button class="btn sm green" data-save>${isNew ? 'ADD' : 'SAVE'}</button>${isNew ? '' : '<button class="btn sm red" data-del>DELETE</button>'}</div></td></tr>`;
+    const m = modal(`<h3>FACTORS &amp; RULES</h3>
+      <p class="note">Factors are the buttons on each student card. Use positive points for good behavior and negative for problems.</p>
+      <div class="tbl-wrap"><table class="data"><tr><th>FACTOR</th><th>POINTS</th><th>SHOW</th><th></th></tr>
+        ${all.map(f => row(f, false)).join('')}${row({}, true)}</table></div>
+      <h2 class="lbl" style="margin-top:18px">GRADE THRESHOLDS</h2>
+      <div class="form-grid">
+        <div><label class="lbl">E AT OR ABOVE</label><input class="inp" type="number" id="eat" value="${rules.e_at}"></div>
+        <div><label class="lbl">U AT OR BELOW</label><input class="inp" type="number" id="uat" value="${rules.u_at}"></div>
+        <div><button class="btn green" id="saveRules">SAVE THRESHOLDS</button></div>
+      </div>`, { wide: true });
+    const refresh = async () => { await loadStatic(); render(); m.close(); $('rulesBtn').click(); };
+    m.el.querySelectorAll('tr[data-id]').forEach(tr => {
+      const get = k => tr.querySelector(`[data-k=${k}]`);
+      tr.querySelector('[data-save]').onclick = async () => {
+        const v = { label: get('label').value.trim(), points: parseInt(get('points').value, 10), active: get('active').checked };
+        if (!v.label) return toast('ERROR', 'Name the factor.');
+        if (!v.points) return toast('ERROR', 'Points can\'t be 0.');
+        try {
+          if (tr.dataset.id) must(await sb.from('character_factors').update(v).eq('id', tr.dataset.id));
+          else must(await sb.from('character_factors').insert({ ...v, sort: all.length + 1 }));
+          toast('FACTORS UPDATED'); refresh();
+        } catch(e){ toast('ERROR', e.message); }
+      };
+      const del = tr.querySelector('[data-del]');
+      if (del) del.onclick = async () => {
+        if (!await confirmBox('DELETE FACTOR', 'Remove this button? Marks already given keep their points.', 'DELETE', true)) return;
+        try { must(await sb.from('character_factors').delete().eq('id', tr.dataset.id)); refresh(); } catch(e){ toast('ERROR', e.message); }
+      };
+    });
+    m.el.querySelector('#saveRules').onclick = async () => {
+      const e_at = parseInt(m.el.querySelector('#eat').value, 10), u_at = parseInt(m.el.querySelector('#uat').value, 10);
+      if (!(e_at > u_at)) return toast('ERROR', 'The E threshold must be higher than the U threshold.');
+      try { must(await sb.from('character_settings').upsert({ id: 1, e_at, u_at })); rules = { e_at, u_at }; render(); toast('THRESHOLDS SAVED'); }
+      catch(e){ toast('ERROR', e.message); }
+    };
+  };
+
+  $('day').onchange = async e => { day = e.target.value || localDay(); $('grid').innerHTML = '<p class="loading">LOADING</p>'; await loadDay(); render(); };
+  $('q').oninput = e => { q = e.target.value.toLowerCase(); render(); };
+
+  try { await loadStatic(); await loadDay(); render(); }
+  catch(e){
+    $('grid').innerHTML = `<p class="err">${esc(e.message)}</p><p class="note">If this mentions a missing table, run <b>supabase/update-character-grades.sql</b> in the Supabase SQL Editor.</p>`;
+  }
+})();
+</script>
+</body>
+</html>

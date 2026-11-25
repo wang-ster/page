@@ -53,9 +53,10 @@
 
   function paintStatus(){
     const graded = comp && comp.graded_at;
-    $('status').textContent = graded ? '✔ GRADED' : comp ? '✔ SUBMITTED' : 'IN PROGRESS';
-    $('submit').disabled = !!graded || !lab.published;
-    $('submit').textContent = comp && !graded ? 'RESUBMIT' : 'SUBMIT LAB';
+    const locked = comp && !comp.unlocked;               // one submission unless the CISO unlocks it
+    $('status').textContent = comp && comp.unlocked ? 'UNLOCKED' : graded ? '✔ GRADED' : comp ? '✔ SUBMITTED' : 'IN PROGRESS';
+    $('submit').disabled = !!locked || !lab.published;
+    $('submit').textContent = comp && comp.unlocked ? 'RESUBMIT' : comp ? 'SUBMITTED' : 'SUBMIT LAB';
     $('fb').innerHTML = graded ? `GRADE: <b>${esc(comp.grade ?? '—')}</b>${comp.feedback ? ' · ' + esc(comp.feedback) : ''}` : '';
   }
   paintStatus();
@@ -112,11 +113,11 @@
   });
 
   async function submit(answers, auto){
-    if (comp && comp.graded_at) return;
+    if (comp && !comp.unlocked) return;
     if (!auto){
       const sc = progress.score != null ? ` Current score: ${progress.score}${progress.max ? ' / ' + progress.max : ''}.` : '';
       const ok = await Core.confirmBox(comp ? 'RESUBMIT LAB?' : 'SUBMIT LAB?',
-        `Your work so far will be sent to your CISO for grading. You'll earn ${lab.xp} XP.${sc} You can resubmit until it's graded.`, 'SUBMIT');
+        `Your work will be sent to your CISO for grading and you'll earn ${lab.xp} XP.${sc} You can only submit once, so make sure you're finished.`, 'SUBMIT');
       if (!ok) return;
     }
     clearTimeout(saveT);

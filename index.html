@@ -71,6 +71,12 @@
       <div class="card-text"><h2>CISO Command Console</h2><p>Operators, labs, grading, shop &amp; announcements</p></div>
       <div class="go"><span class="px" data-icon="arrow"></span></div><div class="shine"></div>`;
     document.getElementById('menu').appendChild(a);
+    const c = document.createElement('a');
+    c.className = 'card frame'; c.href = 'character.html'; c.style.gridColumn = '1 / -1';
+    c.innerHTML = `<div class="card-icon"><span class="px" data-icon="star"></span></div>
+      <div class="card-text"><h2>Character Chart</h2><p>Today's conduct grades: U / S / E / A / A/x</p></div>
+      <div class="go"><span class="px" data-icon="arrow"></span></div><div class="shine"></div>`;
+    document.getElementById('menu').insertBefore(c, a);
     Core.hydrate();
   }
 })();

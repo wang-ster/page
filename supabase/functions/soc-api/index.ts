@@ -18,11 +18,21 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 // Must match usernameDomain in assets/settings.js
 const USERNAME_DOMAIN = "soc.local";
 
+// News sources for Intel. Each is fetched on the server; any that fail are skipped.
+// Google News is a backstop that aggregates many outlets.
+const NEWS_DAYS = 7;
 const FEEDS = [
+  { source: "CISA", url: "https://www.cisa.gov/cybersecurity-advisories/all.xml" },
+  { source: "CISA News", url: "https://www.cisa.gov/news.xml" },
   { source: "The Hacker News", url: "https://feeds.feedburner.com/TheHackersNews" },
   { source: "BleepingComputer", url: "https://www.bleepingcomputer.com/feed/" },
   { source: "Krebs on Security", url: "https://krebsonsecurity.com/feed/" },
-  { source: "CISA", url: "https://www.cisa.gov/cybersecurity-advisories/all.xml" },
+  { source: "SecurityWeek", url: "https://www.securityweek.com/feed/" },
+  { source: "Dark Reading", url: "https://www.darkreading.com/rss.xml" },
+  { source: "The Record", url: "https://therecord.media/feed" },
+  { source: "SANS ISC", url: "https://isc.sans.edu/rssfeed_full.xml" },
+  { source: "Schneier on Security", url: "https://www.schneier.com/feed/atom/" },
+  { source: "Google News", url: "https://news.google.com/rss/search?q=cybersecurity+OR+cyberattack+OR+ransomware+OR+%22data+breach%22+when:7d&hl=en-US&gl=US&ceid=US:en", aggregator: true },
 ];
 
 const cors = {
@@ -33,44 +43,75 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-// ---------- news (cached 15 min per server instance) ----------
-let newsCache: { at: number; items: unknown[] } | null = null;
+// ---------- news (cached 15 min per server instance; empty results are never cached) ----------
+type Item = { source: string; title: string; link: string; date: string | null; summary: string };
+let newsCache: { at: number; body: unknown } | null = null;
 const decode = (s: string) =>
   s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+   .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")   // some feeds double-encode HTML
    .replace(/<[^>]+>/g, " ")
-   .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-   .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&#8217;/g, "’")
-   .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+   .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+   .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'")
+   .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+   .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n))
    .replace(/\s+/g, " ").trim();
 const tag = (block: string, name: string) => {
-  const m = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i"));
+  const m = block.match(new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, "i"));
   return m ? decode(m[1]) : "";
 };
 
+// Parses RSS (<item>) and Atom (<entry>) feeds.
+function parseFeed(xml: string, feed: { source: string; aggregator?: boolean }): Item[] {
+  const blocks = [...xml.matchAll(/<(item|entry)[\s>][\s\S]*?<\/\1>/gi)].map((m) => m[0]);
+  return blocks.map((b) => {
+    const rawDate = tag(b, "pubDate") || tag(b, "dc:date") || tag(b, "published") || tag(b, "updated");
+    const d = new Date(rawDate);
+    let link = tag(b, "link");
+    if (!link.startsWith("http")) link = b.match(/<link[^>]*href="([^"]+)"/i)?.[1] ?? b.match(/<guid[^>]*>(https?:[^<]+)</i)?.[1] ?? "";
+    let title = tag(b, "title");
+    let source = feed.source;
+    if (feed.aggregator) {                                  // Google News: "Headline - Publisher"
+      const pub = tag(b, "source");
+      if (pub) { source = pub; title = title.replace(new RegExp(`\\s+-\\s+${pub.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), ""); }
+    }
+    let summary = feed.aggregator ? "" : (tag(b, "description") || tag(b, "summary") || tag(b, "content"));
+    if (summary.length > 240) summary = summary.slice(0, 237) + "…";
+    return { source, title, link: link.replace(/&amp;/g, "&"), date: isNaN(+d) ? null : d.toISOString(), summary };
+  });
+}
+
 async function news() {
-  if (newsCache && Date.now() - newsCache.at < 15 * 60_000) return newsCache.items;
-  const results = await Promise.allSettled(FEEDS.map(async (f) => {
-    const res = await fetch(f.url, { headers: { "User-Agent": "Mozilla/5.0 SOC-Command" } });
-    const xml = await res.text();
-    return [...xml.matchAll(/<item[\s>][\s\S]*?<\/item>/gi)].slice(0, 12).map(([b]) => {
-      const date = new Date(tag(b, "pubDate") || tag(b, "dc:date"));
-      const summary = tag(b, "description");
-      return {
-        source: f.source,
-        title: tag(b, "title"),
-        link: tag(b, "link") || (b.match(/<guid[^>]*>([^<]+)</)?.[1] ?? ""),
-        date: isNaN(+date) ? null : date.toISOString(),
-        summary: summary.length > 240 ? summary.slice(0, 237) + "…" : summary,
-      };
-    });
+  if (newsCache && Date.now() - newsCache.at < 15 * 60_000) return newsCache.body;
+  const since = Date.now() - NEWS_DAYS * 86_400_000;
+  const status: { source: string; ok: boolean; count: number; error?: string }[] = [];
+  const lists = await Promise.all(FEEDS.map(async (f) => {
+    try {
+      const res = await fetch(f.url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const items = parseFeed(await res.text(), f)
+        .filter((i) => i.title && i.link.startsWith("http") && i.date && Date.parse(i.date) >= since);
+      status.push({ source: f.source, ok: true, count: items.length });
+      return items;
+    } catch (e) {
+      status.push({ source: f.source, ok: false, count: 0, error: String((e as Error)?.message ?? e).slice(0, 80) });
+      return [];
+    }
   }));
-  const items = results
-    .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
-    .filter((i) => i.title && i.link.startsWith("http"))
+  // newest first, drop duplicate headlines (the same story often appears in several feeds)
+  const seen = new Set<string>();
+  const items = lists.flat()
     .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
-    .slice(0, 40);
-  newsCache = { at: Date.now(), items };
-  return items;
+    .filter((i) => { const k = i.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, 60);
+  const body = { items, days: NEWS_DAYS, sources: status, fetched_at: new Date().toISOString() };
+  if (items.length) newsCache = { at: Date.now(), body };
+  return body;
 }
 
 // ---------- main ----------
@@ -91,7 +132,7 @@ Deno.serve(async (req) => {
     if (!me || me.role === "pending") return json({ error: "Account not activated." }, 403);
 
     const body = await req.json().catch(() => ({}));
-    if (body.action === "news") return json({ items: await news() });
+    if (body.action === "news") return json(await news());
 
     if (me.role !== "ciso") return json({ error: "CISO clearance required." }, 403);
 

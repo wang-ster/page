@@ -140,7 +140,7 @@
       ['home','HOME','index.html'], ['terminal','LABS','labs.html'], ['medal','RANKS','milestones.html'],
       ['chest','SHOP','shop.html'], ['radar','INTEL','intel.html'], ['envelope','ANNOUNCEMENTS','#ann']
     ];
-    if (ME && ME.role === 'ciso') items.push(['shield','CONSOLE','console.html']);
+    if (ME && ME.role === 'ciso') items.push(['star','CHARACTER','character.html'], ['shield','CONSOLE','console.html']);
     el.style.gridTemplateColumns = `repeat(${items.length},1fr)`;
     el.innerHTML = items.map(([ic,label,href]) =>
       `<a class="nav-btn ${label === active ? 'active' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${

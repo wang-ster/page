@@ -48,7 +48,7 @@
     .select('id,code,title,category,threat,xp,description,published,created_at')
     .order('created_at', { ascending: true }));
   const mine = must(await sb.from('completions')
-    .select('lab_id,score,max_score,grade,feedback,graded_at,submitted_at').eq('user_id', me.id));
+    .select('lab_id,score,max_score,grade,feedback,graded_at,submitted_at,unlocked').eq('user_id', me.id));
   const done = Object.fromEntries(mine.map(c => [c.lab_id, c]));
 
   const state = { q: '', cat: 'ALL', status: 'ALL' };
@@ -78,7 +78,7 @@
       const ic = Core.cfg.categoryIcons[l.category] || 'terminal';
       const threat = Math.max(1, Math.min(3, l.threat || 1));
       const pips = '■'.repeat(threat) + `<i class="off">${'■'.repeat(3 - threat)}</i>`;
-      const status = !l.published ? 'DRAFT' : c ? (c.graded_at ? '✔ GRADED' : '✔ SUBMITTED') : 'OPEN';
+      const status = !l.published ? 'DRAFT' : c ? (c.unlocked ? 'UNLOCKED' : c.graded_at ? '✔ GRADED' : '✔ SUBMITTED') : 'OPEN';
       const grade = c && c.graded_at
         ? `<div class="gradeline">GRADE: <b>${esc(c.grade ?? '—')}</b>${c.feedback ? ` · ${esc(c.feedback)}` : ''}</div>` : '';
       return `
@@ -94,7 +94,7 @@
           <span class="xp">+${l.xp} XP</span>
         </div>
         ${grade}
-        <a class="btn ${c ? 'ghost' : ''}" href="lab.html?id=${encodeURIComponent(l.id)}">${c ? 'REOPEN' : 'LAUNCH'} ▶</a>
+        <a class="btn ${c ? 'ghost' : ''}" href="lab.html?id=${encodeURIComponent(l.id)}">${c ? (c.unlocked ? 'RESUBMIT' : 'VIEW') : 'LAUNCH'} ▶</a>
       </article>`;
     }).join('') || `<p class="note">${labs.length ? 'No labs match that search.' : 'No labs have been released yet.'}</p>`;
     Core.hydrate();

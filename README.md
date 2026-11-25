@@ -17,9 +17,10 @@ A cybersecurity class site, hosted on GitHub Pages with Supabase behind it for l
    - Turn **OFF** "Allow new users to sign up".
    - Under **Email**, turn **OFF** "Confirm email".
 
-### 2. Turn on account management
-In **SQL Editor → New query**, paste all of `supabase/user-admin.sql` and click **Run**.
-This lets the Console create students, reset passwords, change roles and delete accounts by itself.
+### 2. Run the add-on scripts
+In **SQL Editor → New query**, run each of these files in order (paste all of it, click **Run**):
+1. `supabase/user-admin.sql`: lets the Console create students, reset passwords, change roles and delete accounts.
+2. `supabase/update-character-grades.sql`: one-time lab submission with CISO unlock, plus the Character Chart.
 
 ### 2b. (Optional) Intel news feed
 The Intel page needs one Edge Function. Everything else works without it.
@@ -59,15 +60,25 @@ The anon key is designed to be public. The database rules decide what each perso
 | Add a new mini-lab | **Labs → Upload**: pick the `.html` file and click Upload & Publish. It's live right away. |
 | Hide or show a lab | **Labs →** click LIVE / DRAFT |
 | Grade work | **Gradebook**: View Work shows written answers; enter a grade and feedback, then Release Grade |
-| Let a student redo a graded lab | **Gradebook → Reopen** |
+| Let a student resubmit a lab | **Gradebook → Unlock resubmit** (students can only submit once otherwise) |
 | Award a diamond | **Operators →** the + button |
 | Reset a password | **Operators → Reset PW** |
 | Hand out a shop reward | **Requisitions → Fulfill** (Deny refunds the student) |
 | Post to students | **Announcements** |
 | Change XP levels or coin rewards | **Ranks** |
 
+## Character Chart (CISO only)
+Open **Character** in the bottom bar.
+1. Everyone starts at **S** (0 points) each day.
+2. Tap a student's buttons as things happen, for example **+2 Active participation** or **−1 Distracted**. Their grade updates live: **E** at +3 or more, **U** at −3 or less.
+3. Mark **A** (absent) or **A/x** (excused absence) to replace the grade. **Override** sets E/S/U by hand.
+4. **Undo** removes the last mark; **Log** shows every mark with its time and lets you add a note.
+5. **End-of-day summary** lists every student and their grade. Copy names + grades for your gradebook, download a CSV, or print it.
+
+Change the buttons, their points and the E/U thresholds under **Factors & Rules**. Pick another date to look back at a previous day.
+
 ## How ranks work
-1. Each lab is worth XP, which the student earns when they **submit** it.
+1. Each lab is worth XP, which the student earns when they **submit** it. Each lab can be submitted once unless you unlock it.
 2. Total XP sets their **level**. Every new level is a **milestone** that pays **coins** once.
 3. Coins and diamonds are spent in the **Supply Shop**. A purchase creates a ticket, and the cost is held until you fulfill or deny it.
 4. Diamonds only come from you.

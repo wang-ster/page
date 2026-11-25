@@ -210,7 +210,7 @@
     const filter = sessionStorage.getItem('gradeFilter') || 'ungraded';
     const labFilter = sessionStorage.getItem('gradeLab') || '';
     let q = sb.from('completions')
-      .select('user_id,lab_id,score,max_score,submitted_at,grade,feedback,graded_at,profiles(username,display_name),labs(code,title)')
+      .select('user_id,lab_id,score,max_score,submitted_at,grade,feedback,graded_at,unlocked,profiles(username,display_name),labs(code,title)')
       .order('submitted_at', { ascending: false });
     if (labFilter) q = q.eq('lab_id', labFilter);
     if (filter === 'ungraded') q = q.is('graded_at', null);
@@ -228,14 +228,14 @@
         ${rows.map((r, i) => `<tr data-i="${i}">
           <td>${esc(r.profiles?.display_name || r.profiles?.username || '?')}<br><span class="muted">${esc(r.profiles?.username || '')}</span></td>
           <td>${esc(r.labs?.code || '')}<br><span class="muted">${esc(r.labs?.title || '')}</span></td>
-          <td>${new Date(r.submitted_at).toLocaleString()}</td>
+          <td>${new Date(r.submitted_at).toLocaleString()}${r.unlocked ? '<br><span class="stamp new">UNLOCKED</span>' : ''}</td>
           <td>${r.score != null ? `${r.score}${r.max_score ? ' / ' + r.max_score : ''}` : '<span class="muted">—</span>'}</td>
           <td><input class="inp tiny" data-grade value="${r.grade ?? ''}" placeholder="${r.score ?? ''}"></td>
           <td><input class="inp" data-fb value="${esc(r.feedback ?? '')}" style="min-width:180px"></td>
           <td><div class="actions">
             <button class="btn sm" data-view>VIEW WORK</button>
             <button class="btn sm green" data-save>${r.graded_at ? 'UPDATE' : 'RELEASE GRADE'}</button>
-            ${r.graded_at ? '<button class="btn sm ghost" data-reopen>REOPEN</button>' : ''}
+            <button class="btn sm ${r.unlocked ? '' : 'ghost'}" data-unlock>${r.unlocked ? 'RELOCK' : 'UNLOCK RESUBMIT'}</button>
             <button class="btn sm red" data-revoke>REVOKE</button></div></td>
         </tr>`).join('') || '<tr><td colspan="7" class="muted">Nothing here.</td></tr>'}
       </table></div>`;
@@ -250,8 +250,9 @@
         must(await key(sb.from('completions').update({ grade: g === '' ? r.score : +g, feedback: $('[data-fb]', tr).value.trim() || null, graded_at: new Date().toISOString() })));
         show();
       }, 'GRADE RELEASED');
-      const ro = $('[data-reopen]', tr);
-      if (ro) ro.onclick = () => run(async () => { must(await key(sb.from('completions').update({ graded_at: null }))); show(); }, 'REOPENED FOR RESUBMISSION');
+      $('[data-unlock]', tr).onclick = () => run(async () => {
+        must(await key(sb.from('completions').update({ unlocked: !r.unlocked }))); show();
+      }, r.unlocked ? 'RELOCKED' : `UNLOCKED: ${r.profiles?.username} CAN RESUBMIT`);
       $('[data-revoke]', tr).onclick = async () => {
         if (!await confirmBox('REVOKE SUBMISSION', `Delete this submission? ${r.profiles?.username} loses the XP for ${r.labs?.code} until they submit again.`, 'REVOKE', true)) return;
         run(async () => { must(await key(sb.from('completions').delete())); show(); }, 'SUBMISSION REVOKED');
