@@ -17,11 +17,16 @@ A cybersecurity class site, hosted on GitHub Pages with Supabase behind it for l
    - Turn **OFF** "Allow new users to sign up".
    - Under **Email**, turn **OFF** "Confirm email".
 
-### 2. Deploy the server function
-This function handles creating students, resetting passwords and the Intel news feed.
+### 2. Turn on account management
+In **SQL Editor → New query**, paste all of `supabase/user-admin.sql` and click **Run**.
+This lets the Console create students, reset passwords, change roles and delete accounts by itself.
+
+### 2b. (Optional) Intel news feed
+The Intel page needs one Edge Function. Everything else works without it.
 1. Go to **Edge Functions → Deploy a new function → Via Editor**.
 2. Name it exactly **`soc-api`**.
 3. Replace the sample code with all of `supabase/functions/soc-api/index.ts`, then click **Deploy**.
+4. Open the function's settings and turn **OFF "Verify JWT"**. The code checks the login itself.
 
 ### 3. Connect the website
 1. In Supabase, go to **Project Settings → API**.

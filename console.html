@@ -97,7 +97,7 @@
       </table></div>`;
 
     $('#create').onclick = () => run(async () => {
-      await api('create_user', { username: $('#nu').value, display_name: $('#nd').value, password: $('#np').value, role: $('#nr').value });
+      must(await sb.rpc('ciso_create_user', { p_username: $('#nu').value, p_password: $('#np').value, p_display: $('#nd').value, p_role: $('#nr').value }));
       show();
     }, 'OPERATOR CREATED');
     $('#bulkGo').onclick = async () => {
@@ -105,16 +105,17 @@
       const msg = $('#bulkMsg'); let ok = 0; const bad = [];
       for (const [u, d, p] of lines){
         msg.textContent = `Creating ${u}…`;
-        try { await api('create_user', { username: u, display_name: d || u, password: p, role: 'analyst' }); ok++; }
+        try { must(await sb.rpc('ciso_create_user', { p_username: u, p_password: p || '', p_display: d || u, p_role: 'analyst' })); ok++; }
         catch(e){ bad.push(`${u}: ${e.message}`); }
       }
       toast('BULK CREATE', `${ok} created${bad.length ? `, ${bad.length} failed` : ''}`);
-      if (bad.length) alertBox('SOME ACCOUNTS FAILED', bad.join('\n')); else show();
+      await show();
+      if (bad.length) alertBox('SOME ACCOUNTS FAILED', bad.join('\n'));
     };
     $$('tr[data-id]').forEach(tr => {
       const id = tr.dataset.id, r = roster.find(x => x.id === id);
       const role = $('[data-role]', tr);
-      if (role) role.onchange = () => run(() => api('set_role', { user_id: id, role: role.value }), 'ROLE UPDATED');
+      if (role) role.onchange = () => run(async () => must(await sb.rpc('ciso_set_role', { p_user: id, p_role: role.value })), 'ROLE UPDATED');
       $$('[data-dia]', tr).forEach(b => b.onclick = () => run(async () => {
         must(await sb.from('profiles').update({ diamonds: Math.max(0, r.diamonds_awarded + +b.dataset.dia) }).eq('id', id));
         show();
@@ -129,14 +130,14 @@
           <p class="err" id="pe"></p>
           <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button><button class="btn green" id="go">RESET</button></div>`);
         $('#go', m.el).onclick = async () => {
-          try { await api('reset_password', { user_id: id, password: $('#pw', m.el).value }); m.close(); toast('PASSWORD RESET', `Give ${r.username} the new password.`); }
+          try { must(await sb.rpc('ciso_reset_password', { p_user: id, p_password: $('#pw', m.el).value })); m.close(); toast('PASSWORD RESET', `Give ${r.username} the new password.`); }
           catch(e){ $('#pe', m.el).textContent = e.message; }
         };
       };
       const del = $('[data-del]', tr);
       if (del) del.onclick = async () => {
         if (!await confirmBox('DELETE OPERATOR', `Permanently delete ${r.username} and all their submissions, progress and requisitions?`, 'DELETE', true)) return;
-        run(async () => { await api('delete_user', { user_id: id }); show(); }, 'OPERATOR DELETED');
+        run(async () => { must(await sb.rpc('ciso_delete_user', { p_user: id })); show(); }, 'OPERATOR DELETED');
       };
     });
   },

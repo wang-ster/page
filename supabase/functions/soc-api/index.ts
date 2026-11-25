@@ -1,7 +1,10 @@
 // =====================================================================
 // SOC COMMAND — server function "soc-api"
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor
-//         name it  soc-api  and paste this file.
+//         name it  soc-api  and paste this file. Then open the function's
+//         settings and turn OFF "Verify JWT" (this code checks the login itself).
+// Accounts are managed in the database now (supabase/user-admin.sql);
+// the Console only uses this function for the Intel news feed.
 //
 // Actions:
 //   news            (any member)  latest cybersecurity headlines for Intel
@@ -75,7 +78,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
     const url = Deno.env.get("SUPABASE_URL")!;
-    const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    // works with both the legacy service_role key and the new sb_secret_ keys
+    let secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    try { secret = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}").default || secret; } catch (_) { /* keep legacy */ }
+    const admin = createClient(url, secret);
 
     // who is calling?
     const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
