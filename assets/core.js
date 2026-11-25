@@ -90,6 +90,8 @@
     const { data: { session } } = await sb.auth.getSession();
     const here = location.pathname.split('/').pop() + location.search;
     if (!session){ location.replace('login.html?next=' + encodeURIComponent(here)); return never(); }
+    const la = lastActive();
+    if (la && Date.now() - la > IDLE_MS){ await idleLogout(); return never(); }
     try { await loadMe(); } catch(e){ ME = null; }
     if (!ME || ME.role === 'pending'){
       await sb.auth.signOut();
@@ -399,6 +401,39 @@
     requestAnimationFrame(frame);
   }
 
+  /* ---------------- inactivity auto-logout ----------------
+     Last activity is shared across tabs, so working in one tab keeps the others alive. */
+  const IDLE_MS = Math.max(1, +CFG.idleMinutes || 10) * 60000;
+  const WARN_MS = Math.min(60000, IDLE_MS / 2);
+  const lastActive = () => +(store.get('soc.lastActive') || 0);
+  function markActive(){
+    const now = Date.now();
+    if (now - lastActive() < 5000) return;       // throttle writes
+    store.set('soc.lastActive', String(now));
+    const w = document.getElementById('idleWarn'); if (w) w.remove();
+  }
+  async function idleLogout(){
+    store.set('soc.lastActive', '0');
+    if (sb) await sb.auth.signOut();
+    location.replace('login.html?timeout=1');
+  }
+  function startIdleWatch(){
+    store.set('soc.lastActive', String(Date.now()));
+    ['mousemove','mousedown','keydown','scroll','touchstart','wheel'].forEach(ev =>
+      window.addEventListener(ev, markActive, { passive: true, capture: true }));
+    window.addEventListener('message', e => { if (e.data && e.data.soc === 'activity') markActive(); });
+    setInterval(() => {
+      const idle = Date.now() - lastActive();
+      if (idle >= IDLE_MS) return idleLogout();
+      if (idle >= IDLE_MS - WARN_MS && !document.getElementById('idleWarn')){
+        const w = document.createElement('div');
+        w.id = 'idleWarn'; w.className = 'idle-warn frame';
+        w.innerHTML = '<b>SESSION EXPIRING</b> Move the mouse or press a key to stay logged in.';
+        document.body.appendChild(w);
+      }
+    }, 5000);
+  }
+
   /* ---------------- page bootstrap ---------------- */
   // Visuals start immediately; HUD/nav fill in once the login is verified.
   async function init(active, opts = {}){
@@ -406,7 +441,7 @@
     renderTicker(); splash(); hydrate();
     const me = await guard();
     if (opts.ciso && me.role !== 'ciso'){ location.replace('index.html'); return never(); }
-    renderHUD(); renderNav(active); annBadge();
+    renderHUD(); renderNav(active); annBadge(); startIdleWatch();
     return me;
   }
 

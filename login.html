@@ -48,6 +48,7 @@
     go.disabled = true; return;
   }
   const params = new URLSearchParams(location.search);
+  if (params.get('timeout')) err.textContent = 'Logged out after inactivity. Please sign in again.';
   if (params.get('denied')) err.textContent = 'Access denied: this account has not been activated by the CISO.';
 
   const nextPage = () => {
@@ -78,6 +79,7 @@
       err.textContent = 'Access denied: this account has not been activated by the CISO.';
       go.disabled = false; return;
     }
+    Core.store.set('soc.lastActive', String(Date.now()));
     term.textContent = `> clearance confirmed. welcome, ${me.display_name || me.username}`;
     setTimeout(() => location.replace(nextPage()), 500);
   });

@@ -12,6 +12,10 @@ window.SOC_SETTINGS = {
      becomes username@soc.local. Must match USERNAME_DOMAIN in the server function. */
   usernameDomain: "soc.local",
 
+  /* Log out automatically after this many minutes with no mouse/keyboard/touch activity.
+     A warning appears 1 minute before. Activity inside labs counts too. */
+  idleMinutes: 10,
+
   siteTitle: "SOC COMMAND",
   subtitle:  "CYBER DEFENSE TRAINING CENTER",
 

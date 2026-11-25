@@ -104,7 +104,8 @@ Deno.serve(async (req) => {
           user_metadata: { display_name: body.display_name || username },
         });
         if (error) return json({ error: error.message.includes("already") ? "That username is taken." : error.message }, 400);
-        await admin.from("profiles").update({ role, display_name: body.display_name || username }).eq("id", data.user.id);
+        const { error: pErr } = await admin.from("profiles").update({ role, display_name: body.display_name || username }).eq("id", data.user.id);
+        if (pErr) return json({ error: `Login created, but activating it failed: ${pErr.message}` }, 500);
         return json({ ok: true, id: data.user.id });
       }
       case "reset_password": {

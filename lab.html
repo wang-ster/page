@@ -81,6 +81,10 @@
       var h = a.getAttribute('href');
       if (h.length > 1) location.hash = h; else window.scrollTo(0, 0);
     });
+    var lastPing = 0;
+    ['mousemove','mousedown','keydown','scroll','touchstart','wheel'].forEach(function(ev){
+      window.addEventListener(ev, function(){ var n = Date.now(); if (n - lastPing > 15000){ lastPing = n; parent.postMessage({soc:'activity'}, '*'); } }, {passive:true, capture:true});
+    });
     window.SOC_LAB = {
       progress: function(o){ parent.postMessage({soc:'progress', score:o&&o.score, max:o&&o.max}, '*'); },
       complete: function(o){ parent.postMessage({soc:'complete', score:o&&o.score, max:o&&o.max, answers:o&&o.answers}, '*'); }

@@ -274,6 +274,13 @@ create policy state_ciso on public.lab_state for select to authenticated using (
 create policy req_read on public.requisitions for select to authenticated using (user_id = auth.uid() or is_ciso());
 create policy req_ciso on public.requisitions for all    to authenticated using (is_ciso()) with check (is_ciso());
 
+-- the website's logged-in role needs table access (newer Supabase projects don't grant it automatically);
+-- Row Level Security above still decides what each person can see and change
+grant usage on schema public to authenticated, service_role;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant all on all tables in schema public to service_role;
+grant execute on all functions in schema public to authenticated, service_role;
+
 -- logged-out visitors get nothing
 revoke all on all tables in schema public from anon;
 revoke execute on all functions in schema public from anon;
