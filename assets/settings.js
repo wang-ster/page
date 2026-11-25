@@ -5,7 +5,7 @@
    The anon key is safe to publish: the database rules decide who sees what.
    ===================================================================== */
 window.SOC_SETTINGS = {
-  supabaseUrl:     "https://YOUR-PROJECT-ID.supabase.co",
+  supabaseUrl:     "https://sb_publishable_t8VxTY0967LlzfcP9EKMjw_OaPSXlWt.supabase.co",
   supabaseAnonKey: "YOUR-ANON-KEY",
 
   /* Logins are "username + password". Behind the scenes each username
