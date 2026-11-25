@@ -1,0 +1,11 @@
+[
+  {
+    "file": "network-isolation.html",
+    "code": "LAB-01",
+    "title": "Network Isolation Lab",
+    "category": "Network",
+    "threat": 2,
+    "xp": 200,
+    "description": "Predict how packets move through six isolation techniques, then secure a hospital network."
+  }
+]

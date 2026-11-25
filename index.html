@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
 </head>
 <body>
 <canvas id="splash" width="320" height="180"></canvas>
@@ -23,51 +26,54 @@
       <div class="sub" id="siteSub">CYBER DEFENSE TRAINING CENTER</div>
     </div>
 
-    <nav class="menu">
+    <nav class="menu" id="menu">
       <a class="card frame" href="labs.html">
         <div class="card-icon"><span class="px" data-icon="terminal"></span></div>
-        <div class="card-text"><h2>Mini-Labs</h2><p id="labsLine">Every lab, ready to relaunch</p></div>
-        <div class="go"><span class="px" data-icon="arrow"></span></div>
-        <div class="shine"></div>
+        <div class="card-text"><h2>Mini-Labs</h2><p id="labsLine">Every lab, ready to launch</p></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div><div class="shine"></div>
       </a>
       <a class="card frame" href="milestones.html">
         <div class="card-icon"><span class="px" data-icon="medal"></span></div>
         <div class="card-text"><h2>Ranks</h2><p id="rankLine">Milestones &amp; rewards</p></div>
-        <div class="go"><span class="px" data-icon="arrow"></span></div>
-        <div class="shine"></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div><div class="shine"></div>
       </a>
       <a class="card frame" href="shop.html">
         <div class="card-icon"><span class="px" data-icon="chest"></span></div>
         <div class="card-text"><h2>Supply Shop</h2><p>Spend coins &amp; diamonds</p></div>
-        <div class="go"><span class="px" data-icon="arrow"></span></div>
-        <div class="shine"></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div><div class="shine"></div>
       </a>
-      <button class="card frame" id="intelCard">
+      <a class="card frame" href="intel.html">
         <div class="card-icon"><span class="px" data-icon="radar"></span></div>
-        <div class="card-text"><h2>Intel</h2><p id="intelLine">Briefings from command</p></div>
-        <div class="go"><span class="px" data-icon="arrow"></span></div>
-        <div class="shine"></div>
-      </button>
+        <div class="card-text"><h2>Intel</h2><p>Latest cybersecurity news</p></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div><div class="shine"></div>
+      </a>
     </nav>
   </main>
 
   <footer id="nav" class="nav frame"></footer>
 </div>
 
-<script src="data/config.js"></script>
-<script src="assets/core.js"></script>
 <script>
-  Core.init('HOME');
-  const p = Core.profile();
-  const words = SOC.siteTitle.split(' ');
-  document.getElementById('siteTitle').innerHTML = words.map(Core.esc).join('<br>') + '<span class="cursor">_</span>';
-  document.getElementById('siteSub').textContent = SOC.subtitle;
-  document.getElementById('labsLine').textContent = `${SOC.labs.length} labs on file · ${p.cleared} cleared`;
-  document.getElementById('rankLine').textContent = p.next
-    ? `Next: LV.${p.level + 1} → +${p.next.coins} coins`
-    : 'All milestones claimed';
-  document.getElementById('intelLine').textContent = `${SOC.briefings.length} briefing${SOC.briefings.length === 1 ? '' : 's'} on file`;
-  document.getElementById('intelCard').onclick = Core.showBriefings;
+(async () => {
+  const C = Core.cfg;
+  document.getElementById('siteTitle').innerHTML = C.siteTitle.split(' ').map(Core.esc).join('<br>') + '<span class="cursor">_</span>';
+  document.getElementById('siteSub').textContent = C.subtitle;
+
+  const me = await Core.init('HOME');
+  document.getElementById('labsLine').textContent = `${me.total_labs} labs on file · ${me.cleared} cleared`;
+  document.getElementById('rankLine').textContent = me.next_xp
+    ? `Next: LV.${me.next_level} → +${me.next_coins} coins` : 'All milestones claimed';
+
+  if (me.role === 'ciso'){
+    const a = document.createElement('a');
+    a.className = 'card frame'; a.href = 'console.html'; a.style.gridColumn = '1 / -1';
+    a.innerHTML = `<div class="card-icon"><span class="px" data-icon="shield"></span></div>
+      <div class="card-text"><h2>CISO Command Console</h2><p>Operators, labs, grading, shop &amp; announcements</p></div>
+      <div class="go"><span class="px" data-icon="arrow"></span></div><div class="shine"></div>`;
+    document.getElementById('menu').appendChild(a);
+    Core.hydrate();
+  }
+})();
 </script>
 </body>
 </html>

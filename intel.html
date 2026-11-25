@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Intel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>INTEL<small>// LIVE CYBERSECURITY NEWS</small></h1>
+        <div class="filters" id="srcs"></div>
+      </div>
+      <div class="page-body"><div class="intel-list" id="list"><p class="loading">DECRYPTING FEED</p></div></div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script>
+(async () => {
+  await Core.init('INTEL');
+  const { esc } = Core;
+  const list = document.getElementById('list');
+  let items = [], src = 'ALL';
+
+  const ago = iso => {
+    if (!iso) return '';
+    const m = Math.round((Date.now() - new Date(iso)) / 60000);
+    return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m/60)}h ago` : `${Math.round(m/1440)}d ago`;
+  };
+
+  function render(){
+    const srcs = ['ALL', ...new Set(items.map(i => i.source))];
+    const el = document.getElementById('srcs');
+    el.innerHTML = srcs.map(s => `<button class="fchip ${s === src ? 'on' : ''}" data-s="${esc(s)}">${esc(s.toUpperCase())}</button>`).join('');
+    el.querySelectorAll('button').forEach(b => b.onclick = () => { src = b.dataset.s; render(); });
+    list.innerHTML = items.filter(i => src === 'ALL' || i.source === src).map(i => `
+      <a class="intel" href="${esc(i.link)}" target="_blank" rel="noopener noreferrer">
+        <div class="meta"><span class="src">${esc(i.source)}</span><span>${ago(i.date)}</span></div>
+        <h3>${esc(i.title)}</h3>
+        ${i.summary ? `<p>${esc(i.summary)}</p>` : ''}
+      </a>`).join('') || '<p class="note">No headlines right now.</p>';
+  }
+
+  try {
+    items = (await Core.api('news')).items || [];
+    render();
+  } catch(e){
+    list.innerHTML = `<p class="note">Intel feed offline: ${esc(e.message)}</p>`;
+  }
+})();
+</script>
+</body>
+</html>

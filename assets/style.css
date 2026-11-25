@@ -368,3 +368,94 @@ a{color:inherit;text-decoration:none}
   .ms .ms-lv{width:44px; height:44px; font-size:11px}
   .ms > :last-child{grid-column:1 / -1}
 }
+
+/* =====================================================================
+   v2 additions: login, roles, console, lab player, intel
+   ===================================================================== */
+.role-tag{background:var(--amber); color:var(--ink); padding:2px 5px; font-size:8px}
+.op-row .px{width:26px; height:26px}
+.btn.red{background:linear-gradient(180deg,#ff9aa8 0 40%, var(--red) 40%); box-shadow:inset -3px -3px 0 #8e1f30, 0 3px 0 #000a}
+.btn.sm{font-size:8px; padding:6px 8px}
+.lbl{display:block; font-family:var(--font-head); font-size:8px; color:var(--accent); margin:12px 0 6px}
+.inp{
+  width:100%; font-family:var(--font-body); font-size:21px; color:var(--text);
+  background:#020a14; border:3px solid var(--ink); box-shadow:inset 0 0 0 2px var(--accent-dk);
+  padding:5px 9px; outline:none;
+}
+.inp:focus{box-shadow:inset 0 0 0 2px var(--accent)}
+select.inp{cursor:pointer}
+textarea.inp{resize:vertical; min-height:80px}
+.inp.tiny{width:80px; padding:3px 6px; font-size:19px}
+.err{color:#ff8a9c; min-height:24px; margin-top:8px; font-size:19px}
+.ok-msg{color:var(--green)}
+.modal.wide{width:min(900px,96vw)}
+
+/* login */
+.login-wrap{position:relative; z-index:2; min-height:100vh; display:grid; place-items:center; padding:20px}
+.login{width:min(440px,94vw); padding:28px 26px 24px}
+.login h1{font-family:var(--font-head); font-size:20px; color:var(--green); text-align:center; line-height:1.4;
+  text-shadow:2px 2px 0 var(--ink), 0 0 16px #39ff8866}
+.login .sub{display:block; text-align:center; font-family:var(--font-head); font-size:8px; color:var(--accent); letter-spacing:2px; margin:10px 0 18px}
+.login .seal{display:grid; place-items:center; margin-bottom:12px}
+.login .seal .px{width:64px; height:70px}
+.login .btn{width:100%; margin-top:16px; padding:12px}
+.login .fine{color:var(--muted); font-size:17px; text-align:center; margin-top:14px; line-height:1.1}
+.term{font-size:18px; color:var(--green); min-height:22px; margin-top:6px}
+
+/* console + data tables */
+.tabbar{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px}
+.tbl-wrap{overflow:auto}
+table.data{width:100%; border-collapse:collapse; font-size:19px}
+table.data th{font-family:var(--font-head); font-size:7px; letter-spacing:1px; color:var(--accent); text-align:left;
+  padding:8px 8px; border-bottom:2px solid var(--accent-dk); white-space:nowrap; position:sticky; top:0; background:#071a2c}
+table.data td{padding:6px 8px; border-bottom:1px solid #12324a; vertical-align:middle}
+table.data tr:hover td{background:#0a2034}
+table.data td .muted{color:var(--muted); font-size:16px}
+.actions{display:flex; gap:6px; flex-wrap:wrap}
+.panel-box{padding:14px 16px; margin-bottom:16px; background:#071a2c; border:2px solid var(--ink); box-shadow:inset 0 0 0 2px #1d4a66}
+.panel-box h3{font-family:var(--font-head); font-size:10px; color:var(--green); margin-bottom:6px}
+.form-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:4px 12px; align-items:end}
+.form-grid .span2{grid-column:span 2}
+.form-grid .lbl{margin-top:8px}
+.chk{display:flex; align-items:center; gap:8px; font-size:19px; margin-top:10px}
+.stamp{font-family:var(--font-head); font-size:7px; padding:3px 5px; border:2px solid var(--ink); white-space:nowrap}
+.stamp.pending{background:var(--amber); color:var(--ink)}
+.stamp.fulfilled,.stamp.graded{background:var(--green); color:var(--ink)}
+.stamp.denied{background:#3a1420; color:#ff8a9c}
+.stamp.new{background:var(--accent); color:var(--ink)}
+.stamp.draft{background:#2a3644; color:#aab}
+.answers{display:flex; flex-direction:column; gap:8px; margin-bottom:12px}
+.answer{background:#020a14; border-left:4px solid var(--green); padding:8px 10px}
+.answer small{display:block; color:var(--accent); font-size:15px; word-break:break-all}
+pre.raw{background:#020a14; padding:10px; font-size:15px; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word; color:var(--muted)}
+details summary{cursor:pointer; color:var(--accent); font-family:var(--font-head); font-size:8px; margin:6px 0}
+
+/* lab player */
+.player-shell{position:relative; z-index:2; height:100vh; display:grid; grid-template-rows:auto 1fr; gap:10px; padding:10px 12px}
+.player-bar{display:flex; align-items:center; gap:14px; padding:10px 14px; flex-wrap:wrap}
+.player-bar .pinfo{flex:1; min-width:180px}
+.player-bar h1{font-family:var(--font-head); font-size:13px; text-shadow:2px 2px 0 var(--ink); margin-top:4px}
+.player-bar .lab-code{font-family:var(--font-head); font-size:8px}
+.lab-frame{width:100%; height:100%; border:3px solid var(--ink); box-shadow:0 0 0 2px var(--accent-dk), 0 0 18px #3df0ff33; background:#fff}
+.lab-feedback{font-size:18px; color:var(--muted); max-width:420px}
+.lab-feedback b{color:var(--green); font-weight:normal}
+
+/* lab card grade line */
+.gradeline{background:#020a14; border-left:4px solid var(--green); padding:6px 9px; font-size:18px; line-height:1.05}
+.gradeline b{color:var(--green); font-weight:normal}
+
+/* intel */
+.intel-list{display:flex; flex-direction:column; gap:12px}
+.intel{display:block; padding:12px 14px; background:#071a2c; border:2px solid var(--ink); box-shadow:inset 0 0 0 2px #1d4a66; transition:transform .08s}
+.intel:hover{box-shadow:inset 0 0 0 2px var(--accent); transform:translateX(3px)}
+.intel .meta{display:flex; gap:10px; align-items:center; font-size:16px; color:var(--muted); margin-bottom:4px}
+.intel .src{font-family:var(--font-head); font-size:7px; color:var(--ink); background:var(--accent); padding:3px 5px}
+.intel h3{font-family:var(--font-head); font-size:10px; line-height:1.5; margin-bottom:6px; color:var(--text)}
+.intel p{color:var(--muted); font-size:18px; line-height:1.05}
+.loading{font-family:var(--font-head); font-size:10px; color:var(--green); padding:20px 0}
+.loading::after{content:"_"; animation:blink 1s steps(1) infinite}
+
+@media (max-width:760px){
+  .player-shell{height:auto; min-height:100vh; grid-template-rows:auto 80vh}
+  table.data{font-size:17px}
+}

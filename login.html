@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Secure Access</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="login-wrap">
+  <form class="login frame" id="form" autocomplete="on">
+    <div class="seal"><span class="px" data-icon="shield"></span></div>
+    <h1 id="title">SOC COMMAND</h1>
+    <span class="sub">// SECURE ACCESS TERMINAL</span>
+
+    <label class="lbl" for="u">OPERATOR ID</label>
+    <input class="inp" id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+    <label class="lbl" for="p">PASSPHRASE</label>
+    <input class="inp" id="p" name="password" type="password" autocomplete="current-password" required>
+
+    <button class="btn green" id="go" type="submit">AUTHENTICATE ▶</button>
+    <div class="term" id="term"></div>
+    <p class="err" id="err"></p>
+    <p class="fine">Accounts are issued by your CISO.<br>Forgot your password? Ask your CISO to reset it.</p>
+  </form>
+</div>
+
+<script>
+(async () => {
+  const { sb, esc, hydrate } = Core;
+  const C = window.SOC_SETTINGS;
+  document.getElementById('title').textContent = C.siteTitle;
+  if (Core.store.get('soc.still') === '1') document.documentElement.classList.add('still');
+  hydrate(); Core.splash();
+  const err = document.getElementById('err'), term = document.getElementById('term'), go = document.getElementById('go');
+
+  if (!sb){
+    err.innerHTML = 'Site not connected yet. Add your Supabase URL and anon key to <b>assets/settings.js</b>.';
+    go.disabled = true; return;
+  }
+  const params = new URLSearchParams(location.search);
+  if (params.get('denied')) err.textContent = 'Access denied: this account has not been activated by the CISO.';
+
+  const nextPage = () => {
+    const n = params.get('next') || '';
+    return /^[a-z-]+\.html(\?[\w=&%.-]*)?$/i.test(n) && !n.startsWith('login') ? n : 'index.html';
+  };
+
+  // already logged in?
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && !params.get('denied')) location.replace(nextPage());
+
+  document.getElementById('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    err.textContent = ''; go.disabled = true;
+    const user = document.getElementById('u').value.trim().toLowerCase();
+    const pass = document.getElementById('p').value;
+    term.textContent = '> verifying credentials';
+    const { error } = await sb.auth.signInWithPassword({ email: `${user}@${C.usernameDomain}`, password: pass });
+    if (error){
+      term.textContent = '';
+      err.textContent = 'ACCESS DENIED: wrong operator ID or passphrase.';
+      go.disabled = false; return;
+    }
+    const { data: me } = await sb.rpc('wallet');
+    if (!me || me.role === 'pending'){
+      await sb.auth.signOut();
+      term.textContent = '';
+      err.textContent = 'Access denied: this account has not been activated by the CISO.';
+      go.disabled = false; return;
+    }
+    term.textContent = `> clearance confirmed. welcome, ${me.display_name || me.username}`;
+    setTimeout(() => location.replace(nextPage()), 500);
+  });
+})();
+</script>
+</body>
+</html>

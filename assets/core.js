@@ -4,7 +4,7 @@
    You normally don't need to edit this file — edit data/config.js.
    ============================================================ */
 (function(){
-  const SOC = window.SOC;
+  const CFG = window.SOC_SETTINGS;
 
   /* ---------------- helpers ---------------- */
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -60,80 +60,97 @@
     });
   }
 
-  /* ---------------- operator & progress ---------------- */
-  let memOp = null;
-  function currentOperator(){
-    const id = store.get('soc.operator') ?? memOp;
-    return SOC.roster.find(o => o.callsign === id) || null;
-  }
-  function setOperator(id){ memOp = id; store.set('soc.operator', id || ''); }
-  const labXP = lab => lab.xp ?? SOC.defaultLabXP;
+  /* ---------------- backend ---------------- */
+  const configured = !!(CFG.supabaseUrl && !/YOUR-/.test(CFG.supabaseUrl) && window.supabase);
+  const sb = configured ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey) : null;
+  const never = () => new Promise(() => {});
 
-  function profile(op = currentOperator()){
-    const L = SOC.levels;
-    const done = new Set(op ? (op.completed || []) : []);
-    const xp = SOC.labs.filter(l => done.has(l.id)).reduce((s,l) => s + labXP(l), 0) + (op?.bonusXP || 0);
-    let idx = 0; L.forEach((l,i) => { if (xp >= l.xp) idx = i; });
-    const cur = L[idx], next = L[idx+1] || null;
-    const earned = L.slice(1, idx+1).reduce((s,l) => s + (l.coins || 0), 0) + (op?.bonusCoins || 0);
-    const spent = op?.spent || {};
-    return {
-      guest: !op, op, callsign: op ? op.callsign : 'GUEST',
-      xp, idx, level: idx + 1, rank: cur.rank, cur, next,
-      pct: next ? (xp - cur.xp) / (next.xp - cur.xp) : 1,
-      coins: earned - (spent.coins || 0),
-      diamonds: (op?.diamonds || 0) - (spent.diamonds || 0),
-      done, cleared: SOC.labs.filter(l => done.has(l.id)).length
-    };
+  async function api(action, payload = {}){
+    const { data, error } = await sb.functions.invoke('soc-api', { body: { action, ...payload } });
+    if (error){
+      let msg = error.message;
+      try { const j = await error.context.json(); msg = j.error || msg; } catch(e){}
+      throw new Error(msg);
+    }
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  }
+  const must = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+
+  let ME = null;
+  async function loadMe(){
+    const { data, error } = await sb.rpc('wallet');
+    if (error) throw error;
+    ME = data; return data;
+  }
+
+  // Every page except login calls this. No session → login page.
+  async function guard(){
+    if (!sb){ location.replace('login.html'); return never(); }
+    const { data: { session } } = await sb.auth.getSession();
+    const here = location.pathname.split('/').pop() + location.search;
+    if (!session){ location.replace('login.html?next=' + encodeURIComponent(here)); return never(); }
+    try { await loadMe(); } catch(e){ ME = null; }
+    if (!ME || ME.role === 'pending'){
+      await sb.auth.signOut();
+      location.replace('login.html?denied=1'); return never();
+    }
+    return ME;
   }
 
   /* ---------------- UI pieces ---------------- */
   function renderHUD(){
-    const el = document.getElementById('hud'); if (!el) return;
-    const p = profile(), total = SOC.labs.length, n = SOC.briefings.length;
+    const el = document.getElementById('hud'); if (!el || !ME) return;
+    const p = ME;
+    const pct = p.next_xp ? (p.xp - p.cur_xp) / (p.next_xp - p.cur_xp) : 1;
     el.innerHTML = `
-      <button class="avatar" id="whoBtn" title="Switch operator">${icon('analyst')}</button>
+      <button class="avatar" id="whoBtn" title="Profile & settings">${icon('analyst')}</button>
       <div class="player">
-        <div class="player-name"><span class="lv">LV.${p.level}</span><span class="rank">${esc(p.rank)}</span><span class="callsign">// ${esc(p.callsign)}</span></div>
-        <div class="bar"><i style="width:${(p.pct*100).toFixed(1)}%"></i><b>XP</b><span>${p.next ? `${p.xp}/${p.next.xp}` : `${p.xp} MAX`}</span></div>
-        <div class="bar alt"><i style="width:${total ? p.cleared/total*100 : 0}%"></i><b>LABS</b><span>${p.cleared}/${total}</span></div>
+        <div class="player-name"><span class="lv">LV.${p.level}</span><span class="rank">${esc(p.rank)}</span>
+          <span class="callsign">// ${esc(p.display_name || p.username)}</span>${p.role === 'ciso' ? '<span class="role-tag">CISO</span>' : ''}</div>
+        <div class="bar"><i style="width:${(pct*100).toFixed(1)}%"></i><b>XP</b><span>${p.next_xp ? `${p.xp}/${p.next_xp}` : `${p.xp} MAX`}</span></div>
+        <div class="bar alt"><i style="width:${p.total_labs ? Math.min(1, p.cleared/p.total_labs)*100 : 0}%"></i><b>LABS</b><span>${p.cleared}/${p.total_labs}</span></div>
       </div>
       <div class="currencies">
-        <div class="chip" title="Coins — earned from milestones">${icon('coin')}${p.coins.toLocaleString()}</div>
-        <div class="chip" title="Diamonds — awarded by your instructor">${icon('crystal')}${p.diamonds}</div>
+        <div class="chip" title="Coins — earned from milestones">${icon('coin')}${(+p.coins).toLocaleString()}</div>
+        <div class="chip" title="Diamonds — awarded by your CISO">${icon('crystal')}${p.diamonds}</div>
       </div>
       <div class="hud-actions">
-        <button class="icon-btn" id="mailBtn" aria-label="Intel briefings">${icon('envelope')}${n ? `<span class="badge">${n}</span>` : ''}</button>
+        <button class="icon-btn" id="mailBtn" aria-label="Announcements">${icon('envelope')}<span class="badge" data-ann hidden></span></button>
         <button class="icon-btn" id="setBtn" aria-label="Settings">${icon('gear')}</button>
       </div>`;
-    el.querySelector('#whoBtn').onclick = pickOperator;
-    el.querySelector('#mailBtn').onclick = showBriefings;
+    el.querySelector('#whoBtn').onclick = showSettings;
+    el.querySelector('#mailBtn').onclick = showAnnouncements;
     el.querySelector('#setBtn').onclick = showSettings;
+    hydrate(el);
   }
+  async function refreshMe(){ await loadMe(); renderHUD(); annBadge(); }
 
   function renderTicker(){
     const el = document.getElementById('ticker'); if (!el) return;
     el.innerHTML = `<span class="ticker-label">THREAT FEED</span>
-      <div class="ticker-track"><p>${SOC.ticker.map(t => '▲ ' + esc(t)).join(' &nbsp; ')} &nbsp; ▲</p></div>`;
+      <div class="ticker-track"><p>${CFG.ticker.map(t => '▲ ' + esc(t)).join(' &nbsp; ')} &nbsp; ▲</p></div>`;
   }
 
-  const NAV = [
-    ['home','HOME','index.html'], ['terminal','LABS','labs.html'], ['medal','RANKS','milestones.html'],
-    ['chest','SHOP','shop.html'], ['envelope','INTEL','#intel'], ['gear','SETTINGS','#settings']
-  ];
   function renderNav(active){
     const el = document.getElementById('nav'); if (!el) return;
-    el.innerHTML = NAV.map(([ic,label,href]) =>
+    const items = [
+      ['home','HOME','index.html'], ['terminal','LABS','labs.html'], ['medal','RANKS','milestones.html'],
+      ['chest','SHOP','shop.html'], ['radar','INTEL','intel.html'], ['envelope','ANNOUNCEMENTS','#ann']
+    ];
+    if (ME && ME.role === 'ciso') items.push(['shield','CONSOLE','console.html']);
+    el.style.gridTemplateColumns = `repeat(${items.length},1fr)`;
+    el.innerHTML = items.map(([ic,label,href]) =>
       `<a class="nav-btn ${label === active ? 'active' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${
-        label === 'INTEL' && SOC.briefings.length ? `<span class="badge">${SOC.briefings.length}</span>` : ''}</a>`).join('');
-    el.querySelector('[href="#intel"]').onclick = e => { e.preventDefault(); showBriefings(); };
-    el.querySelector('[href="#settings"]').onclick = e => { e.preventDefault(); showSettings(); };
+        label === 'ANNOUNCEMENTS' ? '<span class="badge" data-ann hidden></span>' : ''}</a>`).join('');
+    el.querySelector('[href="#ann"]').onclick = e => { e.preventDefault(); showAnnouncements(); };
+    hydrate(el);
   }
 
-  function modal(html){
+  function modal(html, opts = {}){
     const back = document.createElement('div');
     back.className = 'modal-back';
-    back.innerHTML = `<div class="modal frame" role="dialog"><button class="x" data-close aria-label="Close">✕</button>${html}</div>`;
+    back.innerHTML = `<div class="modal frame ${opts.wide ? 'wide' : ''}" role="dialog"><button class="x" data-close aria-label="Close">✕</button>${html}</div>`;
     document.body.appendChild(back);
     hydrate(back);
     const close = () => { back.remove(); document.removeEventListener('keydown', onKey); };
@@ -142,45 +159,74 @@
     back.addEventListener('click', e => { if (e.target === back || e.target.closest('[data-close]')) close(); });
     return { el: back, close };
   }
-
-  function pickOperator(){
-    const curId = currentOperator()?.callsign || '';
-    const rows = [{callsign:''}, ...SOC.roster].map(o => {
-      const p = profile(o.callsign ? o : null);
-      return `<button class="op-row ${o.callsign === curId ? 'on' : ''}" data-op="${esc(o.callsign)}">
-        <span class="px" data-icon="analyst" style="width:26px;height:28px"></span>
-        <b>${o.callsign ? esc(o.callsign) : 'GUEST'}</b>
-        <span>${o.callsign ? `LV.${p.level} ${esc(p.rank)}` : 'Browse only'}</span></button>`;
-    }).join('');
-    const m = modal(`<h3>SELECT OPERATOR</h3><p class="note">Choose your callsign to load your rank and wallet.</p><div class="modal-list">${rows}</div>`);
-    m.el.querySelectorAll('[data-op]').forEach(b => b.onclick = () => { setOperator(b.dataset.op); location.reload(); });
+  function confirmBox(title, msg, okLabel = 'CONFIRM', danger = false){
+    return new Promise(res => {
+      const m = modal(`<h3>${esc(title)}</h3><p class="note">${esc(msg)}</p>
+        <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button>
+        <button class="btn ${danger ? 'red' : 'green'}" id="ok">${esc(okLabel)}</button></div>`);
+      let done = false;
+      m.el.querySelector('#ok').onclick = () => { done = true; m.close(); res(true); };
+      new MutationObserver((_, o) => { if (!document.body.contains(m.el)){ o.disconnect(); if (!done) res(false); } })
+        .observe(document.body, { childList: true });
+    });
   }
 
-  function showBriefings(){
-    const items = SOC.briefings.map(b =>
-      `<div class="brief"><small>${esc(b.date)}</small><h4>${esc(b.title)}</h4><p>${esc(b.body)}</p></div>`).join('');
-    modal(`<h3>INTEL BRIEFINGS</h3>${items || '<p class="note">No new briefings.</p>'}`);
+  /* announcements (badge counts posts newer than the last time you opened them) */
+  let annCache = null;
+  async function annBadge(){
+    try {
+      annCache = must(await sb.from('announcements').select('*').order('created_at', { ascending: false }).limit(30));
+      const seen = store.get('soc.annSeen.' + ME.id) || '';
+      const n = annCache.filter(a => a.created_at > seen).length;
+      document.querySelectorAll('[data-ann]').forEach(b => { b.hidden = !n; b.textContent = n; });
+    } catch(e){}
+  }
+  async function showAnnouncements(){
+    if (!annCache) await annBadge();
+    const items = (annCache || []).map(a =>
+      `<div class="brief"><small>${new Date(a.created_at).toLocaleDateString()}</small><h4>${esc(a.title)}</h4><p>${esc(a.body)}</p></div>`).join('');
+    modal(`<h3>ANNOUNCEMENTS</h3>${items || '<p class="note">No announcements yet.</p>'}`);
+    if (annCache && annCache[0]) store.set('soc.annSeen.' + ME.id, annCache[0].created_at);
+    document.querySelectorAll('[data-ann]').forEach(b => b.hidden = true);
   }
 
   function showSettings(){
     const still = store.get('soc.still') === '1';
-    const m = modal(`<h3>SETTINGS</h3>
+    const m = modal(`<h3>OPERATOR SETTINGS</h3>
+      <p class="note">Signed in as <b>${esc(ME.username)}</b> · ${ME.role === 'ciso' ? 'Chief Information Security Officer' : 'Analyst'}</p>
       <div class="modal-list">
-        <button class="op-row" id="sOp"><span class="px" data-icon="analyst" style="width:26px;height:28px"></span><b>SWITCH OPERATOR</b><span>${esc(profile().callsign)}</span></button>
-        <button class="op-row" id="sMotion"><span class="px" data-icon="radar" style="width:26px;height:26px"></span><b>ANIMATIONS</b><span>${still ? 'OFF' : 'ON'}</span></button>
+        <button class="op-row" id="sPw">${icon('lock')}<b>CHANGE PASSWORD</b></button>
+        <button class="op-row" id="sMotion">${icon('radar')}<b>ANIMATIONS</b><span>${still ? 'OFF' : 'ON'}</span></button>
+        <button class="op-row" id="sOut">${icon('arrow')}<b>LOG OUT</b></button>
       </div>`);
-    m.el.querySelector('#sOp').onclick = () => { m.close(); pickOperator(); };
     m.el.querySelector('#sMotion').onclick = () => { store.set('soc.still', still ? '0' : '1'); location.reload(); };
+    m.el.querySelector('#sOut').onclick = async () => { await sb.auth.signOut(); location.replace('login.html'); };
+    m.el.querySelector('#sPw').onclick = () => {
+      m.close();
+      const p = modal(`<h3>CHANGE PASSWORD</h3>
+        <label class="lbl">New password</label><input class="inp" type="password" id="p1" autocomplete="new-password">
+        <label class="lbl">Confirm</label><input class="inp" type="password" id="p2" autocomplete="new-password">
+        <p class="err" id="pe"></p>
+        <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button><button class="btn green" id="go">SAVE</button></div>`);
+      p.el.querySelector('#go').onclick = async () => {
+        const a = p.el.querySelector('#p1').value, b = p.el.querySelector('#p2').value, e = p.el.querySelector('#pe');
+        if (a.length < 6) return e.textContent = 'At least 6 characters.';
+        if (a !== b) return e.textContent = "Passwords don't match.";
+        const { error } = await sb.auth.updateUser({ password: a });
+        if (error) return e.textContent = error.message;
+        p.close(); toast('PASSWORD UPDATED', 'Use it next time you log in.');
+      };
+    };
   }
 
   let toastTimer;
-  function toast(title, msg = 'Coming soon!'){
+  function toast(title, msg = ''){
     let t = document.getElementById('toast');
     if (!t){ t = document.createElement('div'); t.id = 'toast'; t.className = 'toast frame'; document.body.appendChild(t); }
     t.innerHTML = `<h3>${esc(title)}</h3><p>${esc(msg)}</p>`;
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 1300);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
   }
 
   /* ---------------- SPLASH: pixel SOC room ---------------- */
@@ -354,10 +400,18 @@
   }
 
   /* ---------------- page bootstrap ---------------- */
-  function init(active){
+  // Visuals start immediately; HUD/nav fill in once the login is verified.
+  async function init(active, opts = {}){
     if (store.get('soc.still') === '1') document.documentElement.classList.add('still');
-    renderHUD(); renderTicker(); renderNav(active); splash(); hydrate();
+    renderTicker(); splash(); hydrate();
+    const me = await guard();
+    if (opts.ciso && me.role !== 'ciso'){ location.replace('index.html'); return never(); }
+    renderHUD(); renderNav(active); annBadge();
+    return me;
   }
 
-  window.Core = { init, profile, currentOperator, hydrate, icon, esc, modal, toast, labXP, showBriefings };
+  window.Core = {
+    init, sb, api, must, configured, refreshMe, get me(){ return ME; },
+    hydrate, splash, icon, esc, modal, confirmBox, toast, store, showAnnouncements, cfg: CFG
+  };
 })();

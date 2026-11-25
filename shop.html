@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
 </head>
 <body>
 <canvas id="splash" width="320" height="180"></canvas>
@@ -24,8 +27,10 @@
         <div class="filters" id="tabs"></div>
       </div>
       <div class="page-body">
-        <p class="note" id="shopNote"></p>
-        <div class="grid" id="grid"></div>
+        <p class="note">Requisitioning creates a <b>ticket</b>. Show it to your CISO to collect your reward. Coins are held while a ticket is pending.</p>
+        <div class="grid" id="grid"><p class="loading">LOADING</p></div>
+        <h2 class="lbl" style="margin-top:24px">MY REQUISITIONS</h2>
+        <div id="mine"></div>
       </div>
     </section>
   </main>
@@ -33,85 +38,72 @@
   <footer id="nav" class="nav frame"></footer>
 </div>
 
-<script src="data/config.js"></script>
-<script src="assets/core.js"></script>
 <script>
-  Core.init('SHOP');
-  const { esc, icon } = Core;
-  const p = Core.profile();
+(async () => {
+  await Core.init('SHOP');
+  const { esc, icon, sb, must } = Core;
   let tab = 'ALL';
   const cur = { coins: { icon: 'coin', label: 'COINS' }, diamonds: { icon: 'crystal', label: 'DIAMONDS' } };
+  const items = must(await sb.from('shop_items').select('*').eq('active', true).order('sort'));
 
-  document.getElementById('shopNote').innerHTML = p.guest
-    ? 'Select your operator (click the portrait) to requisition supplies.'
-    : `Requisitioning creates a <b>ticket</b>. Show it to your instructor to collect your reward.`;
+  async function renderMine(){
+    const reqs = must(await sb.from('requisitions').select('*').eq('user_id', Core.me.id).order('created_at', { ascending: false }).limit(20));
+    document.getElementById('mine').innerHTML = reqs.length ? `<div class="tbl-wrap"><table class="data">
+      <tr><th>TICKET</th><th>ITEM</th><th>COST</th><th>DATE</th><th>STATUS</th></tr>
+      ${reqs.map(r => `<tr><td>${esc(r.code)}</td><td>${esc(r.item_name)}</td><td>${r.cost} ${r.currency}</td>
+        <td>${new Date(r.created_at).toLocaleDateString()}</td><td><span class="stamp ${r.status}">${r.status.toUpperCase()}</span></td></tr>`).join('')}
+      </table></div>` : '<p class="note">No requisitions yet.</p>';
+  }
 
   function render(){
+    const me = Core.me;
     const tabs = document.getElementById('tabs');
     tabs.innerHTML = ['ALL', 'COINS', 'DIAMONDS'].map(t =>
       `<button class="fchip ${tab === t ? 'on' : ''}" data-t="${t}">${t}</button>`).join('');
     tabs.querySelectorAll('button').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
 
-    const list = SOC.shop.filter(it => tab === 'ALL' || cur[it.currency].label === tab);
+    const list = items.filter(it => tab === 'ALL' || cur[it.currency].label === tab);
     document.getElementById('grid').innerHTML = list.map(it => {
-      const have = p[it.currency], ok = !p.guest && have >= it.cost;
+      const have = me[it.currency], ok = have >= it.cost;
       return `
       <article class="item frame sm ${it.currency === 'diamonds' ? 'diamond' : ''}">
         <div class="item-main">
           <div class="card-icon sm">${icon(it.icon)}</div>
-          <div><h3>${esc(it.name)}</h3><p>${esc(it.desc)}</p></div>
+          <div><h3>${esc(it.name)}</h3><p>${esc(it.description)}</p></div>
         </div>
         <div class="item-foot">
           <div class="price">${icon(cur[it.currency].icon)}${it.cost}</div>
-          <button class="btn ${ok ? 'green' : ''}" data-buy="${esc(it.id)}" ${ok ? '' : 'disabled'}>
-            ${p.guest ? 'LOG IN' : ok ? 'REQUISITION' : `NEED ${it.cost - have} MORE`}</button>
+          <button class="btn ${ok ? 'green' : ''}" data-buy="${it.id}" ${ok ? '' : 'disabled'}>
+            ${ok ? 'REQUISITION' : `NEED ${it.cost - have} MORE`}</button>
         </div>
       </article>`;
-    }).join('');
-    document.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => buy(SOC.shop.find(i => i.id === b.dataset.buy)));
+    }).join('') || '<p class="note">The shop is empty right now.</p>';
+    document.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => buy(items.find(i => i.id === b.dataset.buy)));
     Core.hydrate();
   }
 
-  // short, stable-looking code for the instructor to log
-  function code(str){
-    let h = 2166136261;
-    for (const ch of str){ h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
-    return (h >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(0, 6);
-  }
-
-  function buy(it){
+  async function buy(it){
     const c = cur[it.currency];
-    const m = Core.modal(`
-      <h3>CONFIRM REQUISITION</h3>
-      <div class="item-main" style="margin-bottom:12px">
-        <div class="card-icon sm">${icon(it.icon)}</div>
-        <div><h3 style="color:var(--text)">${esc(it.name)}</h3><p class="note" style="margin:0">${esc(it.desc)}</p></div>
+    const ok = await Core.confirmBox('CONFIRM REQUISITION', `${it.name} for ${it.cost} ${c.label.toLowerCase()}. You have ${Core.me[it.currency]}.`, 'CONFIRM');
+    if (!ok) return;
+    const { data, error } = await sb.rpc('request_item', { p_item: it.id });
+    if (error){ Core.toast('REQUISITION DENIED', error.message); return; }
+    Core.modal(`
+      <h3>REQUISITION TICKET</h3>
+      <div class="ticket">
+        <div>Show this ticket to your CISO.</div>
+        <div class="code">${esc(data.code)}</div>
+        <div class="row"><span>OPERATOR</span><span>${esc(Core.me.username)}</span></div>
+        <div class="row"><span>ITEM</span><span>${esc(data.item)}</span></div>
+        <div class="row"><span>COST</span><span>${data.cost} ${c.label}</span></div>
+        <div class="row"><span>ISSUED</span><span>${new Date(data.created_at).toLocaleString()}</span></div>
       </div>
-      <p class="note">Cost: <b>${it.cost} ${c.label.toLowerCase()}</b> · You have <b>${p[it.currency]}</b></p>
-      <div class="modal-actions">
-        <button class="btn ghost" data-close>CANCEL</button>
-        <button class="btn green" id="go">CONFIRM</button>
-      </div>`);
-    m.el.querySelector('#go').onclick = () => {
-      const when = new Date();
-      const id = `REQ-${code(p.callsign + '|' + it.id + '|' + when.getTime())}`;
-      m.close();
-      Core.modal(`
-        <h3>REQUISITION TICKET</h3>
-        <div class="ticket">
-          <div>Show this ticket to your instructor.</div>
-          <div class="code">${id}</div>
-          <div class="row"><span>OPERATOR</span><span>${esc(p.callsign)}</span></div>
-          <div class="row"><span>ITEM</span><span>${esc(it.name)}</span></div>
-          <div class="row"><span>COST</span><span>${it.cost} ${c.label}</span></div>
-          <div class="row"><span>ISSUED</span><span>${when.toLocaleString()}</span></div>
-        </div>
-        <p class="note" style="margin-top:12px">Your balance updates once your instructor processes this ticket.</p>
-        <div class="modal-actions"><button class="btn" data-close>DONE</button></div>`);
-    };
+      <div class="modal-actions"><button class="btn" data-close>DONE</button></div>`);
+    await Core.refreshMe(); render(); renderMine();
   }
 
-  render();
+  render(); renderMine();
+})();
 </script>
 </body>
 </html>

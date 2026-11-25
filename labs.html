@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
 </head>
 <body>
 <canvas id="splash" width="320" height="180"></canvas>
@@ -21,29 +24,35 @@
     <section class="page frame">
       <div class="page-head">
         <h1>MINI-LAB ARCHIVE<small>// ALL TRAINING SIMULATIONS</small></h1>
-        <div class="summary" id="summary"></div>
+        <div class="actions"><span class="summary" id="summary"></span><a class="btn sm" id="upload" href="console.html#labs" hidden>+ UPLOAD LAB</a></div>
       </div>
       <div class="toolbar">
         <input class="search" id="q" placeholder="> search labs_" autocomplete="off">
         <div class="filters" id="cats"></div>
         <div class="filters" id="stat"></div>
       </div>
-      <div class="page-body"><div class="grid" id="grid"></div></div>
+      <div class="page-body"><div class="grid" id="grid"><p class="loading">LOADING LABS</p></div></div>
     </section>
   </main>
 
   <footer id="nav" class="nav frame"></footer>
 </div>
 
-<script src="data/config.js"></script>
-<script src="assets/core.js"></script>
 <script>
-  Core.init('LABS');
-  const { esc, icon } = Core;
-  const p = Core.profile();
+(async () => {
+  const me = await Core.init('LABS');
+  const { esc, icon, sb, must } = Core;
+  if (me.role === 'ciso') document.getElementById('upload').hidden = false;
+
+  const labs = must(await sb.from('labs')
+    .select('id,code,title,category,threat,xp,description,published,created_at')
+    .order('created_at', { ascending: true }));
+  const mine = must(await sb.from('completions')
+    .select('lab_id,score,max_score,grade,feedback,graded_at,submitted_at').eq('user_id', me.id));
+  const done = Object.fromEntries(mine.map(c => [c.lab_id, c]));
+
   const state = { q: '', cat: 'ALL', status: 'ALL' };
-  const cats = ['ALL', ...new Set(SOC.labs.map(l => l.category))];
-  const statuses = p.guest ? ['ALL'] : ['ALL', 'OPEN', 'CLEARED'];
+  const cats = ['ALL', ...new Set(labs.map(l => l.category))];
 
   function chips(id, list, key){
     const el = document.getElementById(id);
@@ -54,47 +63,46 @@
 
   function render(){
     chips('cats', cats, 'cat');
-    chips('stat', statuses, 'status');
+    chips('stat', ['ALL', 'OPEN', 'SUBMITTED'], 'status');
     const q = state.q.toLowerCase();
-    const list = SOC.labs.filter(l => {
-      const cleared = p.done.has(l.id);
+    const list = labs.filter(l => {
+      const sub = !!done[l.id];
       return (state.cat === 'ALL' || l.category === state.cat)
-        && (state.status === 'ALL' || (state.status === 'CLEARED') === cleared)
-        && (!q || `${l.id} ${l.title} ${l.desc} ${l.category}`.toLowerCase().includes(q));
+        && (state.status === 'ALL' || (state.status === 'SUBMITTED') === sub)
+        && (!q || `${l.code} ${l.title} ${l.description} ${l.category}`.toLowerCase().includes(q));
     });
-
-    document.getElementById('summary').innerHTML = p.guest
-      ? `<b>${SOC.labs.length}</b> LABS ON FILE`
-      : `<b>${p.cleared}</b> / ${SOC.labs.length} CLEARED`;
+    document.getElementById('summary').innerHTML = `<b>${mine.filter(c => labs.some(l => l.id === c.lab_id && l.published)).length}</b> / ${labs.filter(l => l.published).length} SUBMITTED`;
 
     document.getElementById('grid').innerHTML = list.map(l => {
-      const cleared = p.done.has(l.id), locked = !l.file;
-      const ic = SOC.categoryIcons[l.category] || 'terminal';
+      const c = done[l.id];
+      const ic = Core.cfg.categoryIcons[l.category] || 'terminal';
       const threat = Math.max(1, Math.min(3, l.threat || 1));
       const pips = '■'.repeat(threat) + `<i class="off">${'■'.repeat(3 - threat)}</i>`;
+      const status = !l.published ? 'DRAFT' : c ? (c.graded_at ? '✔ GRADED' : '✔ SUBMITTED') : 'OPEN';
+      const grade = c && c.graded_at
+        ? `<div class="gradeline">GRADE: <b>${esc(c.grade ?? '—')}</b>${c.feedback ? ` · ${esc(c.feedback)}` : ''}</div>` : '';
       return `
-      <article class="lab frame sm ${cleared ? 'cleared' : ''} ${locked ? 'locked' : ''}">
-        <div class="lab-top"><span class="lab-code">${esc(l.id)}</span>
-          <span class="status">${locked ? 'CLASSIFIED' : cleared ? '✔ CLEARED' : 'OPEN'}</span></div>
+      <article class="lab frame sm ${c ? 'cleared' : ''} ${!l.published ? 'locked' : ''}">
+        <div class="lab-top"><span class="lab-code">${esc(l.code)}</span><span class="status">${status}</span></div>
         <div class="lab-main">
           <div class="card-icon sm">${icon(ic)}</div>
-          <div><h3>${esc(l.title)}</h3><p>${esc(l.desc)}</p></div>
+          <div><h3>${esc(l.title)}</h3><p>${esc(l.description)}</p></div>
         </div>
         <div class="lab-meta">
           <span class="tag">${esc(l.category)}</span>
           <span class="pips">THREAT <i>${pips}</i></span>
-          <span class="xp">+${Core.labXP(l)} XP</span>
+          <span class="xp">+${l.xp} XP</span>
         </div>
-        ${locked
-          ? `<span class="btn disabled">${icon('lock')} LOCKED</span>`
-          : `<a class="btn ${cleared ? 'ghost' : ''}" href="${esc(l.file)}" target="_blank" rel="noopener">${cleared ? 'REPLAY' : 'LAUNCH'} ▶</a>`}
+        ${grade}
+        <a class="btn ${c ? 'ghost' : ''}" href="lab.html?id=${encodeURIComponent(l.id)}">${c ? 'REOPEN' : 'LAUNCH'} ▶</a>
       </article>`;
-    }).join('') || `<p class="note">No labs match that search.</p>`;
+    }).join('') || `<p class="note">${labs.length ? 'No labs match that search.' : 'No labs have been released yet.'}</p>`;
     Core.hydrate();
   }
 
   document.getElementById('q').addEventListener('input', e => { state.q = e.target.value; render(); });
   render();
+})();
 </script>
 </body>
 </html>

@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Isolation Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: ranked station rail (most → least secure), one station at a time with a live packet diagram above predict/reveal controls, then the hospital design challenge and a copyable results summary. */
+:root{
+  --bg:#edf1f5; --surface:#ffffff; --ink:#13202c; --muted:#566676; --line:#d2dbe4; --zone:#e5ecf3;
+  --accent:#0c5fc0; --accent-ink:#ffffff;
+  --ok:#1b7f48; --bad:#c42f2f; --chg:#6745cc; --trap:#b25f0c;
+  --font-display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --font-body:"Source Sans 3","Segoe UI",Arial,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d131a; --surface:#151f29; --ink:#e3eaf1; --muted:#92a2b3; --line:#2a3846; --zone:#1b2733;
+    --accent:#5ea4f2; --accent-ink:#0a1520;
+    --ok:#48c381; --bad:#f06b6b; --chg:#a68cf6; --trap:#f0a24c;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d131a; --surface:#151f29; --ink:#e3eaf1; --muted:#92a2b3; --line:#2a3846; --zone:#1b2733;
+  --accent:#5ea4f2; --accent-ink:#0a1520;
+  --ok:#48c381; --bad:#f06b6b; --chg:#a68cf6; --trap:#f0a24c;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:17px;line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+h1,h2,h3,h4{font-family:var(--font-display);line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:clamp(30px,5vw,44px);font-weight:800;letter-spacing:-.01em}
+h2{font-size:26px;font-weight:800}
+h3{font-size:28px;font-weight:800}
+h4{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+p{margin:0}
+b{font-weight:700}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* Header */
+.top{padding:36px 0 26px;border-bottom:1px solid var(--line);background:var(--surface)}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+.lede{max-width:65ch;color:var(--muted);margin-top:10px}
+.howto{list-style:none;padding:0;margin:22px 0 0;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;counter-reset:s}
+.howto li{counter-increment:s;background:var(--bg);border-radius:10px;padding:12px 14px;font-size:15px;color:var(--muted)}
+.howto li::before{content:counter(s);display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:13px;margin-right:8px}
+.howto li b{color:var(--ink)}
+.outcomes{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:16px;font-size:15px;color:var(--muted)}
+.outcomes span{display:flex;align-items:center;gap:7px}
+
+.pill{display:inline-block;font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1.5px solid currentColor}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)} .pill.chg{color:var(--chg)} .pill.trap{color:var(--trap)}
+
+section{padding:34px 0 10px}
+.sec-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.sec-head p{color:var(--muted);max-width:60ch}
+
+/* Rank scale + rail */
+.scale{display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+.scale .bar{flex:1;height:2px;background:var(--line);position:relative}
+.scale .bar::after{content:"";position:absolute;right:-1px;top:-4px;border:5px solid transparent;border-left:8px solid var(--line);border-right:0}
+.rail{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.rail button{background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;text-align:left;cursor:pointer;display:grid;gap:2px;min-height:76px}
+.rail .rk{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.rail .nm{font-family:var(--font-display);font-weight:700;font-size:17px}
+.rail .stt{font-size:13px;color:var(--muted)}
+.rail button.current{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.rail button.done .stt{color:var(--ok);font-weight:600}
+.rail button:disabled{cursor:not-allowed;opacity:.5}
+
+/* Station */
+.station{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px}
+.st-head{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center}
+.rank{width:76px;height:76px;border-radius:14px;background:var(--ink);color:var(--surface);display:grid;place-content:center;text-align:center;font-family:var(--font-display);font-weight:800;font-size:30px;line-height:1}
+.rank small{display:block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-top:4px;opacity:.75}
+.by{color:var(--muted);margin-top:4px}
+.by b{color:var(--ink)}
+.analogy{font-style:italic;margin-top:2px}
+.keys{list-style:none;padding:0;margin:18px 0 0;display:grid;grid-template-columns:repeat(2,1fr);gap:8px 22px}
+.keys li{padding-left:14px;border-left:3px solid var(--accent);font-size:16px}
+.diagram-wrap{margin-top:18px;overflow-x:auto;border-radius:12px;background:var(--bg);border:1px solid var(--line)}
+svg.diagram{display:block;width:100%;min-width:640px;height:auto}
+.play{display:grid;grid-template-columns:290px 1fr;gap:18px;margin-top:18px}
+.pk-list{display:grid;gap:8px;margin-top:10px}
+.pk-btn{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;text-align:left;background:var(--bg);border:1.5px solid transparent;border-radius:10px;padding:10px 12px;cursor:pointer;font-size:15px;font-weight:600}
+.pk-btn.sel{border-color:var(--accent);background:var(--surface)}
+.pk-btn .chip{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--surface);color:var(--muted);border:1px solid var(--line)}
+.pk-btn .chip.right{color:var(--ok);border-color:var(--ok)}
+.pk-btn .chip.wrong{color:var(--bad);border-color:var(--bad)}
+.pk-btn:disabled{cursor:wait}
+.panel{background:var(--bg);border-radius:12px;padding:16px 18px;display:grid;gap:12px;align-content:start}
+.sc-title{font-family:var(--font-display);font-weight:700;font-size:20px}
+.preds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;border:0;padding:0;margin:0}
+.preds legend{font-weight:700;margin-bottom:8px;padding:0}
+.pred{border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 10px 10px 14px;cursor:pointer;text-align:left;position:relative;display:grid;gap:2px}
+.pred::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:0 3px 3px 0;background:var(--c)}
+.pred .w{font-weight:700}
+.pred .d{font-size:13px;color:var(--muted);line-height:1.3}
+.pred[aria-pressed="true"]{border-color:var(--c);box-shadow:inset 0 0 0 1.5px var(--c)}
+.pred.ok{--c:var(--ok)} .pred.bad{--c:var(--bad)} .pred.chg{--c:var(--chg)} .pred.trap{--c:var(--trap)}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:10px;padding:11px 18px;font-weight:700;cursor:pointer;justify-self:start}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
+.verdict{padding:10px 14px;border-radius:10px;background:var(--surface);border-left:4px solid var(--c);font-weight:600}
+.verdict.right{--c:var(--ok)} .verdict.wrong{--c:var(--bad)}
+.verdict .tag{font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--c);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:2px}
+.sniff{background:var(--ink);color:var(--surface);border-radius:10px;padding:12px 14px}
+.sniff span{display:block;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.7;margin-bottom:4px}
+.sniff code{font-family:var(--font-mono);font-size:13.5px;word-break:break-word}
+.st-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted)}
+
+/* SVG */
+.zone{fill:var(--zone);stroke:var(--line);stroke-width:1.5}
+.zone.safe{fill:color-mix(in srgb,var(--ok) 9%,var(--bg));stroke:color-mix(in srgb,var(--ok) 40%,var(--line))}
+.zone.dmz{fill:color-mix(in srgb,var(--trap) 9%,var(--bg));stroke:color-mix(in srgb,var(--trap) 40%,var(--line))}
+.zone.trap{fill:color-mix(in srgb,var(--trap) 12%,var(--bg));stroke:var(--trap);stroke-dasharray:6 5}
+.zone.v10{fill:color-mix(in srgb,var(--accent) 10%,var(--bg));stroke:var(--accent)}
+.zone.v20{fill:color-mix(in srgb,var(--trap) 10%,var(--bg));stroke:var(--trap)}
+.zone.v30{fill:color-mix(in srgb,var(--chg) 10%,var(--bg));stroke:var(--chg)}
+.zone.out{fill:var(--zone)}
+.zone-label{font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;fill:var(--muted)}
+.link{stroke:var(--muted);stroke-width:2;opacity:.6}
+.link.hand{stroke-dasharray:3 6;stroke-linecap:round;stroke-width:3}
+.link.watch{stroke:var(--trap);stroke-dasharray:5 5}
+.link.v10{stroke:var(--accent);opacity:.8} .link.v20{stroke:var(--trap);opacity:.8} .link.v30{stroke:var(--chg);opacity:.8}
+.gapline{stroke:var(--bad);stroke-width:3;stroke-dasharray:8 7}
+.gap-label{font-family:var(--font-mono);font-size:11px;font-weight:700;fill:var(--bad);letter-spacing:.05em}
+.link-label{font-family:var(--font-mono);font-size:10.5px;fill:var(--muted)}
+.node rect{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.node .kind{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;fill:var(--muted)}
+.node .name{font-family:var(--font-body);font-size:13px;font-weight:700;fill:var(--ink)}
+.node.attacker rect{stroke:var(--bad);stroke-width:2}
+.node.attacker .kind{fill:var(--bad)}
+.node.decoy rect{stroke:var(--trap);stroke-dasharray:5 4;stroke-width:2}
+.node.decoy .kind{fill:var(--trap)}
+.node.v10 rect{stroke:var(--accent);stroke-width:2} .node.v20 rect{stroke:var(--trap);stroke-width:2} .node.v30 rect{stroke:var(--chg);stroke-width:2}
+.node.isolated rect{stroke-dasharray:4 4}
+.node.hit-ok rect{stroke:var(--ok);stroke-width:3;fill:color-mix(in srgb,var(--ok) 14%,var(--surface))}
+.node.hit-bad rect{stroke:var(--bad);stroke-width:3;fill:color-mix(in srgb,var(--bad) 14%,var(--surface))}
+.node.alarm rect{stroke:var(--trap);stroke-width:3;fill:color-mix(in srgb,var(--trap) 22%,var(--surface));animation:alarm .5s ease-in-out 5 alternate}
+@keyframes alarm{to{fill:var(--surface)}}
+.tunnel{fill:none;stroke:var(--chg);stroke-opacity:.18;stroke-width:34;stroke-linecap:round;stroke-linejoin:round}
+.tunnel-label{font-family:var(--font-mono);font-size:11px;font-weight:700;fill:var(--chg);letter-spacing:.06em}
+.pk-dot{fill:var(--accent);stroke:var(--surface);stroke-width:3}
+.pk.enc .pk-dot{fill:var(--chg)}
+.pk-tag rect{fill:var(--ink)}
+.pk-tag text{font-family:var(--font-mono);font-size:11px;font-weight:700;fill:var(--surface)}
+.pk.enc .pk-tag rect{fill:var(--chg)}
+.pk.enc .pk-tag text{fill:#fff}
+.flash{fill:none;stroke:var(--accent);stroke-width:2}
+.mark{fill:none;stroke-width:3.5}
+.mark.ok{stroke:var(--ok)} .mark.bad{stroke:var(--bad)} .mark.chg{stroke:var(--chg)} .mark.trap{stroke:var(--trap)}
+.mark-text{font-family:var(--font-display);font-weight:800;font-size:13px;letter-spacing:.04em}
+.mark-text.ok{fill:var(--ok)} .mark-text.bad{fill:var(--bad)} .mark-text.chg{fill:var(--chg)} .mark-text.trap{fill:var(--trap)}
+.mark-bg{fill:var(--surface);opacity:.92}
+
+/* Part 2 */
+.locked-note{background:var(--surface);border:1.5px dashed var(--line);border-radius:12px;padding:14px 16px;color:var(--muted);margin-bottom:14px}
+.brief{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
+.brief p{max-width:70ch}
+.rules{margin:10px 0 0;padding-left:20px;color:var(--muted)}
+.assets{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+.asset{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:8px;align-content:start}
+.asset .num{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.asset h4{font-size:18px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.asset p{font-size:15px;color:var(--muted)}
+.asset label{font-size:13px;font-weight:700}
+.asset select,.asset input,.res textarea,.res input{width:100%;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);padding:8px 10px;font-size:15px}
+.asset.dup select{border-color:var(--bad)}
+.asset.pass{border-color:var(--ok)} .asset.fail{border-color:var(--bad)}
+.design-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px}
+.design-bar .msg{color:var(--muted);font-size:15px}
+.design-bar .msg.warn{color:var(--bad);font-weight:600}
+.tests{display:grid;gap:8px;margin-top:14px}
+.trow{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:15px}
+.trow b{display:block}
+.score{font-family:var(--font-display);font-weight:800;font-size:20px}
+.fieldset-reset{border:0;padding:0;margin:0;min-width:0}
+
+/* Results */
+.res{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;display:grid;gap:14px}
+.res .row{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.res label{font-weight:700;font-size:14px;display:block;margin-bottom:4px}
+.res textarea{min-height:80px;resize:vertical}
+.res textarea.summary{font-family:var(--font-mono);font-size:13px;min-height:220px;background:var(--bg)}
+.copy-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.copy-row .st{color:var(--muted);font-size:15px}
+.instr{display:flex;justify-content:flex-end;margin-top:10px}
+.modal{position:fixed;inset:0;background:rgba(10,18,26,.55);display:grid;place-items:center;padding:16px;z-index:20}
+.modal[hidden]{display:none}
+.modal-card{background:var(--surface);color:var(--ink);border-radius:14px;padding:22px;max-width:420px;width:100%;display:grid;gap:10px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.modal-card h3{font-size:22px}
+.modal-card p{color:var(--muted);font-size:15px}
+.modal-card label{font-weight:700;font-size:14px}
+.modal-card input{width:100%;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);padding:9px 11px;font-size:16px}
+.modal-card .err{color:var(--bad);font-weight:600;font-size:14px;min-height:20px}
+.modal-card .row{display:flex;justify-content:flex-end;gap:8px}
+.btn.danger{background:var(--bad);color:#fff}
+footer{padding:30px 0 50px;color:var(--muted);font-size:14px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.linkbtn{background:none;border:0;color:var(--accent);text-decoration:underline;cursor:pointer;padding:0;font-size:14px}
+
+@media (max-width:860px){
+  .play{grid-template-columns:1fr}
+  .assets{grid-template-columns:repeat(2,1fr)}
+  .howto{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:640px){
+  .rail{grid-template-columns:repeat(3,1fr)}
+  .keys{grid-template-columns:1fr}
+  .preds{grid-template-columns:repeat(2,1fr)}
+  .assets{grid-template-columns:1fr}
+  .howto{grid-template-columns:1fr}
+  .res .row{grid-template-columns:1fr}
+  .station{padding:16px}
+}
+@media (prefers-reduced-motion: reduce){ .node.alarm rect{animation:none} }
+
+/* Tabs + scoreboard */
+.bar-nav{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar-nav .wrap{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs a{display:block;padding:14px 14px 11px;font-weight:700;color:var(--muted);text-decoration:none;border-bottom:3px solid transparent}
+.tabs a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs a:hover{color:var(--ink)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
+.chip-score{font-family:var(--font-mono);font-size:13px;font-weight:700;padding:5px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.chip-score.pts{color:var(--accent)}
+.chip-score.miss{color:var(--bad)}
+.view{display:none}
+.view.on{display:block}
+
+.replays{display:flex;gap:8px;flex-wrap:wrap}
+.btn.small{padding:8px 14px;font-size:15px}
+.notes{margin-top:18px;display:grid;gap:6px}
+.notes label{font-weight:700}
+.notes .hint{font-size:14px;color:var(--muted)}
+.notes textarea{width:100%;min-height:96px;resize:vertical;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);padding:10px 12px;font-size:16px}
+.notes .saved{font-size:13px;color:var(--muted)}
+.foot-btns{display:flex;gap:8px;flex-wrap:wrap}
+
+.worth{font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--accent)}
+.worth.low{color:var(--trap)}
+.asset .status{font-size:14px;font-weight:700;color:var(--ok)}
+.asset select:disabled,.asset input:disabled{opacity:.8;cursor:not-allowed}
+.scoring{margin-top:10px;font-size:15px;color:var(--muted)}
+.scoring b{color:var(--ink)}
+
+/* Results page */
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.tile .k{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.tile .v{font-family:var(--font-display);font-weight:800;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.2}
+.tile .s{font-size:14px;color:var(--muted)}
+.tile.miss .v{color:var(--bad)}
+.rblock{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+.rblock h3{font-size:20px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+.rblock h3 small{font-family:var(--font-mono);font-size:13px;color:var(--muted);font-weight:700}
+.tbl-wrap{overflow-x:auto;margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+td.r{color:var(--ok);font-weight:700} td.w{color:var(--bad);font-weight:700} td.n{color:var(--muted)}
+.mynotes{margin-top:12px;background:var(--bg);border-radius:10px;padding:10px 14px;white-space:pre-wrap;font-size:15px}
+.mynotes .lab{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;white-space:normal}
+.tries{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:8px}
+.tries li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;background:var(--bg);border-radius:10px;padding:8px 12px;font-size:15px}
+.tries .why{color:var(--muted);font-style:italic}
+.part-h{font-size:22px;margin:26px 0 12px}
+@media (max-width:640px){.tiles{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">Cybersecurity · Network isolation mini-lab</p>
+    <h1>Network Isolation Lab</h1>
+    <p class="lede">You will send packets through six networks, ranked from most secure to least secure. Before each packet leaves, predict what will happen to it. Then use what you learned to protect a hospital.</p>
+    <ol class="howto">
+      <li><b>Pick a packet</b> from the list.</li>
+      <li><b>Predict</b> what happens to it. You get one try.</li>
+      <li><b>Send it</b> and watch the diagram.</li>
+      <li><b>Read why</b> and take notes.</li>
+    </ol>
+    <div class="outcomes" aria-label="Possible outcomes">
+      <span><span class="pill ok">Allowed</span> reaches its destination</span>
+      <span><span class="pill bad">Blocked</span> stopped before it arrives</span>
+      <span><span class="pill chg">Changed</span> arrives, but rewritten or encrypted</span>
+      <span><span class="pill trap">Trapped</span> lured into a decoy and recorded</span>
+    </div>
+  </div>
+</header>
+
+<nav class="bar-nav" aria-label="Lab sections">
+  <div class="wrap">
+    <div class="tabs">
+      <a href="#packets" data-view="packets">Part 1 · Follow the packet</a>
+      <a href="#hospital" data-view="hospital">Part 2 · Hospital</a>
+      <a href="#results" data-view="results">My results</a>
+    </div>
+    <div class="chips" aria-live="polite">
+      <span class="chip-score pts" id="chip-pts"></span>
+      <span class="chip-score miss" id="chip-miss"></span>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap">
+  <section class="view" id="view-packets" aria-labelledby="p1">
+    <div class="sec-head">
+      <h2 id="p1">Part 1 · Follow the packet</h2>
+      <p id="p1-score"></p>
+    </div>
+    <div class="scale" aria-hidden="true"><span>Most secure</span><span class="bar"></span><span>Least secure</span></div>
+    <nav class="rail" id="rail" aria-label="Stations"></nav>
+    <article class="station" id="station"></article>
+  </section>
+
+  <section class="view" id="view-hospital" aria-labelledby="p2">
+    <div class="sec-head">
+      <h2 id="p2">Part 2 · Protect Mercy General Hospital</h2>
+      <p id="p2-score"></p>
+    </div>
+    <div id="p2-lock" class="locked-note"></div>
+    <fieldset class="fieldset-reset" id="p2-fields">
+      <div class="brief">
+        <p>Mercy General Hospital has six security problems. You are the network security lead. Match each problem with the isolation technique that solves it best, and write one sentence explaining why. Then press <b>Test my design</b> to send real traffic at your network.</p>
+        <ul class="rules">
+          <li>Use each technique exactly once.</li>
+          <li>You can test as many times as you need. A problem you solve locks in.</li>
+          <li>Each miss lowers what that problem is worth, so think before you test.</li>
+        </ul>
+        <p class="scoring">Each problem is worth <b>20 points</b> if solved on the first try, then <b>15</b>, <b>10</b>, and <b>5</b> after that.</p>
+      </div>
+      <div class="assets" id="assets"></div>
+      <div class="design-bar">
+        <button class="btn" id="test-btn" type="button">Test my design</button>
+        <span class="msg" id="design-msg"></span>
+      </div>
+      <div class="diagram-wrap"><svg class="diagram" id="hosp-svg" role="img" aria-label="Hospital network diagram"></svg></div>
+      <div class="design-bar replays" id="hosp-replays"></div>
+      <div class="tests" id="tests"></div>
+    </fieldset>
+    <div class="instr"><button class="linkbtn" id="reset-p2" type="button">Instructor: reset Part 2</button></div>
+  </section>
+
+  <section class="view" id="view-results" aria-labelledby="p3">
+    <div class="sec-head">
+      <h2 id="p3">My results</h2>
+      <p>Everything you have answered so far. This page updates as you work.</p>
+    </div>
+    <div id="results"></div>
+  </section>
+
+  <footer>
+    <span>Diagrams are simplified models of real networks. Your work is saved in this browser.</span>
+    <span><button class="linkbtn" id="teacher-btn" type="button">Teacher preview: unlock Part 2</button></span>
+  </footer>
+</main>
+<div class="modal" id="pw-modal" hidden>
+  <form class="modal-card" id="pw-form" role="dialog" aria-modal="true" aria-labelledby="pw-title">
+    <h3 id="pw-title">Instructor password</h3>
+    <p id="pw-desc"></p>
+    <label for="pw-input">Password</label>
+    <input id="pw-input" type="password" autocomplete="off">
+    <span class="err" id="pw-err" aria-live="polite"></span>
+    <div class="row"><button class="btn ghost small" type="button" id="pw-cancel">Cancel</button><button class="btn danger small" type="submit" id="pw-ok">Confirm</button></div>
+  </form>
+</div>
+
+<script>
+(function(){
+"use strict";
+const SVGNS="http://www.w3.org/2000/svg";
+const $=s=>document.querySelector(s);
+const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const OUT={
+  Allowed:{cls:"ok",def:"Reaches its destination"},
+  Blocked:{cls:"bad",def:"Stopped before it arrives"},
+  Changed:{cls:"chg",def:"Arrives, but rewritten or encrypted"},
+  Trapped:{cls:"trap",def:"Lured into a decoy and recorded"}
+};
+function N(x,y,name,kind,tone,w){return {x,y,name,kind,tone:tone||"",w:w||110};}
+
+/* ---------------- STATIONS (ranked most → least secure) ---------------- */
+const STATIONS=[
+{ id:"airgap", name:"Air Gap", rank:1, by:"physical separation",
+  analogy:"“Not locked. Just not connected.”",
+  points:[["Physical isolation:","no cable, no Wi-Fi, no connection to any other network."],
+          ["Used for:","power plants, military systems, factory controls and offline backups."],
+          ["Weak spot:","people. USB drives and laptops carried across the gap (Stuxnet, 2010)."],
+          ["Trade-off:","every update or file has to be moved by hand."]],
+  diagram:{ w:760,h:320,
+    zones:[{x:10,y:16,w:160,h:290,label:"Internet",tone:"out"},{x:185,y:16,w:250,h:290,label:"Office network"},{x:500,y:16,w:250,h:290,label:"Air-gapped control network",tone:"safe"}],
+    nodes:{hacker:N(90,95,"Hacker","ATTACKER","attacker"),inet:N(90,215,"Internet","CLOUD"),router:N(250,95,"Office router","ROUTER"),
+           opc:N(370,215,"Engineer PC","PC"),gapPt:{x:452,y:95,hidden:true},usb:N(467,268,"USB drive","CARRIED",null,92),
+           ctrl:N(570,95,"Control PC","PC"),turbine:N(680,215,"Turbine","CONTROLLER")},
+    links:[["hacker","inet"],["inet","router"],["router","opc"],["ctrl","turbine"],["opc","usb","hand"],["usb","ctrl","hand"]],
+    gaps:[{x:468,y1:58,y2:225,label:"NO CONNECTION"}] },
+  scenarios:[
+    {name:"Hacker scans from the internet",desc:"A hacker on the internet searches for the power plant’s turbine controller.",
+     path:["hacker","inet","router","gapPt"],tag:"DST turbine-ctrl",result:"Blocked",accept:["Blocked"],
+     explain:"No cable or wireless link connects the office network to the control network, so the packet has nowhere to go. You can’t hack what you can’t reach.",
+     sniff:"Nothing. No wire crosses the gap, so there is nothing to tap."},
+    {name:"Infected USB drive",desc:"An engineer copies a software update onto a USB drive at the office PC, then plugs it into the control PC. The drive is secretly infected.",
+     path:["opc","usb","ctrl","turbine"],tag:"update.exe (infected)",result:"Allowed",accept:["Allowed"],
+     explain:"The malware crossed the gap in someone’s pocket. An air gap blocks network traffic, but it can’t stop a person carrying files across. This is how Stuxnet reached Iran’s air-gapped nuclear centrifuges.",
+     sniff:"Nothing on any network. The file traveled by hand, so network monitoring never saw it."}
+  ]},
+{ id:"dmz", name:"DMZ", rank:2, by:"layered firewall rules",
+  analogy:"“The lobby of a building. Visitors get in, but not past the security desk.”",
+  points:[["Buffer zone:","a separate network between the internet and the internal LAN."],
+          ["Holds public servers:","websites, email, DNS. Anything outsiders need to reach."],
+          ["Two walls:","internet → DMZ is allowed. DMZ → internal LAN is blocked or tightly limited."],
+          ["If a DMZ server is hacked,","the attacker still faces the inner firewall."]],
+  diagram:{ w:760,h:320,
+    zones:[{x:10,y:16,w:160,h:290,label:"Internet",tone:"out"},{x:262,y:16,w:236,h:290,label:"DMZ",tone:"dmz"},{x:590,y:16,w:160,h:290,label:"Internal LAN",tone:"safe"}],
+    nodes:{customer:N(90,90,"Customer","USER"),hacker:N(90,235,"Hacker","ATTACKER","attacker"),fw1:N(216,162,"Outer FW","FIREWALL",null,84),
+           web:N(380,90,"Web server","SERVER"),mail:N(380,235,"Mail server","SERVER"),fw2:N(544,162,"Inner FW","FIREWALL",null,84),
+           db:N(670,90,"Customer DB","DATABASE"),hr:N(670,235,"HR computer","PC")},
+    links:[["customer","fw1"],["hacker","fw1"],["fw1","web"],["fw1","mail"],["web","fw2"],["mail","fw2"],["fw2","db"],["fw2","hr"]] },
+  scenarios:[
+    {name:"Customer visits the website",desc:"A customer opens the company website to place an order.",
+     path:["customer","fw1","web"],tag:"HTTPS → web server",result:"Allowed",accept:["Allowed"],
+     explain:"The outer firewall has a rule that allows web traffic to the web server. Public servers sit in the DMZ so outsiders can reach them.",
+     sniff:"Encrypted HTTPS traffic headed to the web server. Normal, expected traffic."},
+    {name:"Hacker goes straight for the database",desc:"A hacker sends a packet directly to the customer database inside the internal LAN.",
+     path:["hacker","fw1"],tag:"DST customer-db",result:"Blocked",accept:["Blocked"],
+     explain:"The outer firewall only lets traffic into the DMZ. No rule lets the internet reach the internal LAN, so the packet is dropped at the first wall.",
+     sniff:"A connection attempt to an internal address, rejected by the outer firewall."},
+    {name:"Hacker uses a hijacked web server",desc:"The hacker has taken over the web server. From there, they try to reach the customer database.",
+     path:["web","fw2"],tag:"web server → customer-db",result:"Blocked",accept:["Blocked"],
+     explain:"This is the reason a DMZ exists. The web server was hacked, but the inner firewall doesn’t trust anything in the DMZ. The attacker is stuck in the lobby.",
+     sniff:"A DMZ server suddenly trying to reach the internal database. This should set off an alert."}
+  ]},
+{ id:"vpn", name:"VPN", rank:3, by:"encryption",
+  analogy:"“An armored truck driving on a public highway.”",
+  points:[["Tunnel:","your packet is wrapped (encapsulated) inside another packet."],
+          ["Encryption:","anyone snooping in the middle sees scrambled data."],
+          ["Two types:","remote access (one person → office) and site-to-site (office → office)."],
+          ["Limit:","it protects the trip, not the devices at either end."]],
+  diagram:{ w:760,h:320,
+    zones:[{x:10,y:16,w:250,h:290,label:"Coffee shop",tone:"out"},{x:275,y:16,w:215,h:290,label:"Internet",tone:"out"},{x:505,y:16,w:245,h:290,label:"Company office",tone:"safe"}],
+    nodes:{laptop:N(80,100,"Your laptop","LAPTOP"),wifi:N(190,195,"Café Wi-Fi","ACCESS POINT"),snoop:N(80,270,"Snooper","ATTACKER","attacker"),
+           inet:N(382,195,"Internet","CLOUD"),gw:N(578,195,"VPN gateway","GATEWAY"),fs:N(685,100,"File server","SERVER")},
+    links:[["laptop","wifi"],["wifi","inet"],["inet","gw"],["gw","fs"],["snoop","wifi","watch"]],
+    tunnel:["laptop","wifi","inet","gw"] },
+  scenarios:[
+    {name:"Open the payroll file (VPN on)",ask:"what happens to the contents of this packet as it crosses the café Wi-Fi, and does it get delivered?",desc:"You log in to the company file server from a café to open the payroll spreadsheet. Your VPN is on.",vpn:true,
+     path:["laptop","wifi","inet","gw","fs"],tag:"login: jsmith  pw: Sunny2026",
+     steps:{wifi:{tag:"ENCRYPTED 9f2c a71e 03bd",enc:true},gw:{tag:"login: jsmith  pw: Sunny2026"}},
+     result:"Changed",accept:["Changed"],
+     explain:"Your laptop encrypted the packet, and the company’s VPN gateway decrypted it. Between those two points it was unreadable. It arrived safely.",
+     sniff:"9f2c a71e 03bd 5e88 c410 … → vpn.company.com (unreadable)"},
+    {name:"Same login, VPN off",desc:"Same café, same login, but you forgot to turn on the VPN, and the file server uses an old, unencrypted connection.",
+     path:["laptop","wifi","inet","gw","fs"],tag:"login: jsmith  pw: Sunny2026",result:"Allowed",accept:["Allowed"],
+     explain:"The packet arrived, but every device along the way could read it. The snooper on the café Wi-Fi now has your username and password.",
+     sniff:"login: jsmith  pw: Sunny2026 → files.company.com"},
+    {name:"Laptop already has malware",ask:"what happens to the contents of this packet as it crosses the café Wi-Fi, and does the malware get delivered?",desc:"Your laptop picked up malware last week. You connect to the VPN as usual.",vpn:true,
+     path:["laptop","wifi","inet","gw","fs"],tag:"malware.exe",
+     steps:{wifi:{tag:"ENCRYPTED 4be1 0c9d 77fa",enc:true},gw:{tag:"malware.exe"}},
+     result:"Allowed",accept:["Allowed","Changed"],
+     explain:"The VPN encrypted the malware and delivered it straight into the office. A VPN protects data on the road. It doesn’t check whether the device at either end is safe.",
+     sniff:"4be1 0c9d 77fa … → vpn.company.com (unreadable, so nobody notices the malware either)"}
+  ]},
+{ id:"vlan", name:"VLAN", rank:4, by:"logical separation on shared switches",
+  analogy:"“Same building, different floors, and your keycard only works on yours.”",
+  points:[["One switch, many networks:","each port is assigned to a separate virtual LAN."],
+          ["Separate by default:","devices on different VLANs can’t talk directly."],
+          ["Crossing VLANs","requires a router, where rules decide what is allowed."],
+          ["Weak spot:","it’s all settings. A misconfigured switch can be tricked (VLAN hopping)."]],
+  diagram:{ w:760,h:320,
+    zones:[{x:10,y:196,w:240,h:112,label:"VLAN 10 · Staff",tone:"v10"},{x:260,y:196,w:240,h:112,label:"VLAN 20 · Students",tone:"v20"},{x:510,y:196,w:240,h:112,label:"VLAN 30 · Guests",tone:"v30"}],
+    nodes:{router:N(380,48,"Router + rules","LAYER 3",null,130),sw:N(380,135,"One switch","SWITCH",null,130),
+           teacher:N(72,258,"Teacher PC","PC","v10",104),grades:N(190,258,"Grade server","SERVER","v10",104),
+           student:N(320,258,"Student laptop","LAPTOP","v20",108),rogue:N(440,258,"Rogue device","ATTACKER","attacker",104),
+           visitor:N(572,258,"Visitor phone","PHONE","v30",104),tv:N(690,258,"Lobby TV","DISPLAY","v30",104)},
+    links:[["router","sw"],["sw","teacher","v10"],["sw","grades","v10"],["sw","student","v20"],["sw","rogue","v20"],["sw","visitor","v30"],["sw","tv","v30"]] },
+  scenarios:[
+    {name:"Teacher opens the gradebook",desc:"A teacher PC on VLAN 10 (Staff) connects to the grade server, also on VLAN 10.",
+     path:["teacher","sw","grades"],tag:"VLAN 10 → grade server",result:"Allowed",accept:["Allowed"],
+     explain:"Both devices are on VLAN 10, so the switch forwards the traffic normally.",
+     sniff:"Only VLAN 10 devices can see this traffic."},
+    {name:"Student tries to reach the gradebook",desc:"A student laptop on VLAN 20 sends a packet to the grade server on VLAN 10. Both are plugged into the same switch.",
+     path:["student","sw"],tag:"VLAN 20 → grade server",result:"Blocked",accept:["Blocked"],
+     explain:"Same physical switch, different VLAN. The switch won’t forward a VLAN 20 frame to a VLAN 10 port. To cross over, traffic must go through the router, and its rules don’t let students reach grades.",
+     sniff:"A VLAN 20 device can’t even see VLAN 10 traffic."},
+    {name:"VLAN hopping on a misconfigured switch",ask:"what happens to this frame’s VLAN tag at the switch, and does it get delivered to the grade server?",desc:"An attacker plugs a rogue device into a student port. The switch still has an insecure default setting, so the attacker hides a second VLAN tag inside the frame.",
+     path:["rogue","sw","grades"],tag:"VLAN 20 [hidden: VLAN 10]",steps:{sw:{tag:"VLAN 10 → grade server"}},
+     result:"Allowed",accept:["Allowed","Changed"],
+     explain:"The switch stripped the outer tag and read the hidden VLAN 10 tag underneath, so the packet hopped into the staff VLAN. A VLAN is only as secure as its configuration. That’s why it ranks #4.",
+     sniff:"A frame that looks like normal VLAN 10 traffic."}
+  ]},
+{ id:"nat", name:"NAT", rank:5, by:"hiding internal addresses",
+  analogy:"“The school’s main phone number. Callers can’t dial a classroom directly.”",
+  points:[["Private addresses:","10.x.x.x, 172.16–31.x.x and 192.168.x.x don’t work on the internet."],
+          ["Translation:","the router swaps a private address for its one public address."],
+          ["PAT (NAT overload):","many devices share one public IP, told apart by port numbers."],
+          ["Not a firewall:","it hides addresses, but replies you asked for still get in."]],
+  diagram:{ w:760,h:320,
+    zones:[{x:10,y:16,w:330,h:290,label:"School LAN (private)",tone:"safe"},{x:350,y:16,w:400,h:290,label:"Internet (public)",tone:"out"}],
+    nodes:{pcA:N(90,95,"PC A","192.168.1.10"),pcB:N(90,235,"PC B","192.168.1.11"),nat:N(345,165,"NAT router","PUBLIC 203.0.113.5",null,138),
+           inet:N(520,165,"Internet","CLOUD"),web:N(680,90,"Website","198.51.100.20"),hacker:N(680,240,"Hacker","ATTACKER","attacker")},
+    links:[["pcA","nat"],["pcB","nat"],["nat","inet"],["inet","web"],["inet","hacker"]] },
+  scenarios:[
+    {name:"PC A loads a website",ask:"what happens to the IP address and the delivery of this packet?",desc:"PC A (192.168.1.10) requests a page from a website on the internet.",
+     path:["pcA","nat","inet","web"],tag:"SRC 192.168.1.10",steps:{nat:{tag:"SRC 203.0.113.5:40001"}},
+     result:"Changed",accept:["Changed"],
+     explain:"The NAT router replaced the private source address with its public address and a port number, and wrote that down in its translation table. The website never learns PC A’s real address.",
+     sniff:"SRC 203.0.113.5:40001. Only the router’s public address. PC A is invisible."},
+    {name:"Hacker knocks on the router",desc:"A hacker sends an unrequested packet to the school’s public address, hoping to reach a computer inside.",
+     path:["hacker","inet","nat"],tag:"DST 203.0.113.5 (unrequested)",result:"Blocked",accept:["Blocked"],
+     explain:"The router checks its translation table. No computer inside asked for this packet, so the router doesn’t know where to send it and drops it.",
+     sniff:"A packet aimed at the public address. The private addresses behind it never appear."},
+    {name:"A phishing download comes back",ask:"what happens to the destination IP address and the delivery of this reply?",desc:"PC A clicked a phishing link. The website sends back the file PC A asked for, and it’s malware.",
+     path:["web","inet","nat","pcA"],tag:"DST 203.0.113.5:40001  invoice.zip",steps:{nat:{tag:"DST 192.168.1.10  invoice.zip"}},
+     result:"Allowed",accept:["Allowed","Changed"],
+     explain:"PC A asked for this reply, so it matches the translation table and NAT lets it in (rewriting the address back to 192.168.1.10). NAT hides addresses, but it doesn’t judge whether traffic is safe. That’s why it ranks #5.",
+     sniff:"A normal-looking reply to 203.0.113.5:40001."}
+  ]},
+{ id:"honeynet", name:"Honeynet", rank:6, by:"deception",
+  analogy:"“A decoy vault full of fake gold, with cameras on it.”",
+  points:[["Decoy network:","fake servers built to look valuable to attackers."],
+          ["Zero real users:","so any traffic to it is suspicious by definition."],
+          ["Purpose:","detect intruders, study their tricks, waste their time."],
+          ["Not a wall:","it protects nothing directly, and it must be walled off from real systems."]],
+  diagram:{ w:760,h:320,
+    zones:[{x:10,y:16,w:190,h:290,label:"Internet",tone:"out"},{x:300,y:16,w:450,h:140,label:"Real company network",tone:"safe"},{x:300,y:170,w:450,h:136,label:"Honeynet (decoys)",tone:"trap"}],
+    nodes:{hacker:N(100,95,"Hacker","ATTACKER","attacker"),fw:N(246,165,"Firewall","FIREWALL",null,84),
+           realweb:N(385,90,"Company website","SERVER",null,124),emp:N(545,90,"Employee PC","PC"),real:N(680,90,"File server","SERVER",null,104),
+           decoy:N(420,245,"“Payroll-DB”","DECOY","decoy"),decoy2:N(560,245,"“Backups”","DECOY","decoy"),log:N(690,245,"Monitor + log","SENSOR",null,100)},
+    links:[["hacker","fw"],["fw","realweb"],["emp","real"],["fw","decoy"],["decoy","decoy2"],["decoy2","log","watch"]] },
+  scenarios:[
+    {name:"Hacker hunts for payroll data",desc:"A hacker scans the company looking for anything named “payroll.”",
+     path:["hacker","fw","decoy"],tag:"scan: *payroll*",result:"Trapped",accept:["Trapped"],alarm:"log",
+     explain:"The hacker found “Payroll-DB,” which is fake. Every command they type is recorded, and the security team gets an alert. Real payroll data was never involved.",
+     sniff:"Monitor log: 19:42:07 login attempt on Payroll-DB from 66.77.88.99 → ALERT sent to security team"},
+    {name:"Employee saves a report",desc:"An employee saves a report to the real file server, like any normal day.",
+     path:["emp","real"],tag:"report.docx",result:"Allowed",accept:["Allowed"],
+     explain:"The honeynet doesn’t touch normal work. Employees never use the decoys, which is exactly why any traffic to a decoy stands out.",
+     sniff:"Normal internal traffic."},
+    {name:"Hacker attacks the real website",desc:"A different hacker ignores the decoys and attacks a bug in the real company website.",
+     path:["hacker","fw","realweb"],tag:"exploit: login-page bug",result:"Allowed",accept:["Allowed"],
+     explain:"The honeynet did nothing to stop this attack, because it only catches attackers who wander into it. That’s why it ranks last as a defense, even though it’s a great detection tool.",
+     sniff:"Attack traffic on the website’s port. The honeynet never saw it."}
+  ]}
+];
+
+const TECH=[{id:"airgap",name:"Air Gap"},{id:"dmz",name:"DMZ"},{id:"vpn",name:"VPN"},{id:"vlan",name:"VLAN"},{id:"nat",name:"NAT"},{id:"honeynet",name:"Honeynet"}];
+const TNAME=Object.fromEntries(TECH.map(t=>[t.id,t.name]));
+const TECH_DOES={
+  airgap:"An air gap cuts every connection, so nobody can reach it, including the people who need it.",
+  dmz:"A DMZ puts a public-facing server between two firewalls.",
+  vpn:"A VPN encrypts data while it travels across public networks.",
+  vlan:"A VLAN separates devices that share the same switches.",
+  nat:"NAT lets many private devices share one public address.",
+  honeynet:"A honeynet sets decoys to catch intruders, but it protects nothing directly."
+};
+const HOSP={ w:760,h:340,
+  zones:[{x:10,y:16,w:170,h:310,label:"Internet",tone:"out"},{x:272,y:16,w:478,h:310,label:"Mercy General Hospital",tone:"safe"}],
+  nodes:{hacker:N(95,72,"Hacker","ATTACKER","attacker"),patient:N(95,178,"Patient at home","USER",null,124),doctor:N(95,282,"Doctor at a café","USER",null,124),
+         edge:N(226,178,"Edge router","ROUTER",null,84),core:N(480,178,"Core switch","SWITCH",null,104),
+         portal:N(345,72,"Appointment site","1 · WEB SERVER",null,128),staff:N(480,62,"Staff PCs (400)","2 · COMPUTERS",null,124),remote:N(640,72,"Chart server","3 · SERVER",null,112),
+         guest:N(345,290,"Guest Wi-Fi","4 · WIRELESS",null,112),decoy:N(480,292,"Early warning","5 · SENSOR",null,112),backup:N(640,288,"Backup vault","6 · BACKUP","isolated",112)},
+  links:[["hacker","edge"],["patient","edge"],["doctor","edge"],["edge","core"],["core","portal"],["core","staff"],["core","remote"],["core","guest"],["core","decoy"]] };
+const ASSETS=[
+  {id:"staff",node:"staff",name:"400 staff computers",detail:"Every staff computer needs the internet, but the hospital was given only one public IP address.",answer:"nat",
+   need:"a way for many private computers to share one public address",
+   pass:{path:["staff","core","edge"],tag:"SRC 10.0.4.17",steps:{edge:{tag:"SRC 198.51.100.7:52114"}},mark:"ONLINE",msg:"All 400 computers reach the internet through one public address, and their private addresses stay hidden."},
+   fail:{path:["hacker","edge","core","staff"],tag:"DST 10.0.4.17",mark:"NO INTERNET",msg:"Staff computers can’t share the single public address."}},
+  {id:"portal",node:"portal",name:"Appointment website",detail:"Patients book visits online from home. If the site gets hacked, attackers must not reach anything else.",answer:"dmz",
+   need:"to be reachable from the internet but walled off from internal systems",
+   pass:{path:["patient","edge","portal"],tag:"book appointment",mark:"WORKS",msg:"Patients reach the site, and if it’s hacked, the inner firewall keeps the attacker away from patient data."},
+   fail:{path:["hacker","edge","portal","core"],tag:"hacked site → records",mark:"EXPOSED",msg:"Either patients can’t reach the site, or a hacked site leads straight into the hospital."}},
+  {id:"decoy",node:"decoy",name:"Early-warning system",detail:"Security wants to know if someone is already inside the network, hunting for patient records.",answer:"honeynet",
+   need:"a decoy that detects and records intruders",
+   pass:{path:["hacker","edge","core","decoy"],tag:"scan: *patient*",mark:"CAUGHT",msg:"The intruder finds a fake “PatientRecords” server and sets off the alarm."},
+   fail:{path:["hacker","edge","core","staff"],tag:"scan: *patient*",mark:"UNNOTICED",msg:"The intruder searches the network and nobody notices."}},
+  {id:"backup",node:"backup",name:"Ransomware-proof backup",detail:"A copy of every patient record that must survive even if ransomware takes over the entire hospital network.",answer:"airgap",
+   need:"a copy with no network connection at all",
+   pass:{path:["hacker","edge","core"],tag:"ransomware spreading",mark:"NO PATH",msg:"The ransomware spreads through the network but can’t find the backup. The hospital can restore everything."},
+   fail:{path:["hacker","edge","core","backup"],tag:"ransomware spreading",mark:"ENCRYPTED",msg:"The ransomware reaches the backup and locks it too."}},
+  {id:"guest",node:"guest",name:"Waiting-room guest Wi-Fi",detail:"Visitors get free Wi-Fi. It runs on the same switches as the nurses’ computers.",answer:"vlan",
+   need:"logical separation on switches that are shared",
+   pass:{path:["guest","core"],tag:"visitor phone → staff PC",mark:"SEPARATED",msg:"Guests are on their own VLAN, so the switch keeps them away from staff computers."},
+   fail:{path:["guest","core","staff"],tag:"visitor phone → staff PC",mark:"EXPOSED",msg:"A visitor’s phone can reach staff computers."}},
+  {id:"remote",node:"remote",name:"Doctors working remotely",detail:"Doctors read patient charts from home and from coffee-shop Wi-Fi.",answer:"vpn",
+   need:"protection for data while it crosses public networks",
+   pass:{path:["doctor","edge","core","remote"],tag:"ENCRYPTED 3a9f c1d0",tagEnc:true,steps:{remote:{tag:"chart: patient #4471"}},mark:"PRIVATE",msg:"The chart travels encrypted. A snooper on the café Wi-Fi sees only scrambled data."},
+   fail:{path:["doctor","edge","core","remote"],tag:"chart: patient #4471",mark:"READABLE",msg:"Either doctors can’t connect, or the chart crosses the café Wi-Fi where anyone can read it."}}
+];
+
+/* ---------------- SVG ---------------- */
+function S(tag,attrs,parent){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function drawDiagram(svg,d){
+  svg.innerHTML="";svg.setAttribute("viewBox",`0 0 ${d.w} ${d.h}`);
+  const gz=S("g",{},svg);
+  d.zones.forEach(z=>{S("rect",{x:z.x,y:z.y,width:z.w,height:z.h,rx:12,class:"zone "+(z.tone||"")},gz);
+    const t=S("text",{x:z.x+12,y:z.y+20,class:"zone-label"},gz);t.textContent=z.label;});
+  S("g",{class:"tunnel-layer"},svg);
+  const gl=S("g",{},svg);
+  (d.gaps||[]).forEach(g=>{S("line",{x1:g.x,y1:g.y1,x2:g.x,y2:g.y2,class:"gapline"},gl);
+    const t=S("text",{x:g.x,y:g.y1-10,class:"gap-label","text-anchor":"middle"},gl);t.textContent=g.label;});
+  d.links.forEach(([a,b,c])=>{const A=d.nodes[a],B=d.nodes[b];S("line",{x1:A.x,y1:A.y,x2:B.x,y2:B.y,class:"link "+(c||"")},gl);
+    if(c==="hand"&&a==="opc"){const t=S("text",{x:B.x-54,y:B.y+28,class:"link-label","text-anchor":"end"},gl);t.textContent="carried by hand";}});
+  const gn=S("g",{},svg);
+  for(const id in d.nodes){const n=d.nodes[id];if(n.hidden)continue;const w=n.w||110,h=46;
+    const g=S("g",{class:"node "+(n.tone||""),"data-id":id,transform:`translate(${n.x-w/2},${n.y-h/2})`},gn);
+    S("rect",{width:w,height:h,rx:8},g);
+    const k=S("text",{x:w/2,y:17,"text-anchor":"middle",class:"kind"},g);k.textContent=n.kind;
+    const t=S("text",{x:w/2,y:35,"text-anchor":"middle",class:"name"},g);t.textContent=n.name;}
+  S("g",{class:"fx"},svg);
+}
+function showTunnel(svg,d,on){
+  const L=svg.querySelector(".tunnel-layer");L.innerHTML="";
+  if(!on||!d.tunnel)return;
+  const pts=d.tunnel.map(id=>d.nodes[id]);
+  S("polyline",{points:pts.map(p=>p.x+","+p.y).join(" "),class:"tunnel"},L);
+  const a=pts[1],b=pts[2];const t=S("text",{x:(a.x+b.x)/2,y:(a.y+b.y)/2-24,"text-anchor":"middle",class:"tunnel-label"},L);t.textContent="VPN TUNNEL";
+}
+let animToken=0;
+let pace=1;
+const sleep=ms=>new Promise(r=>setTimeout(r,reduce?0:ms*pace));
+function tween(dur,fn){return new Promise(res=>{if(reduce){fn(1);res();return;}const t0=performance.now();dur=dur*pace;
+  function f(now){const p=Math.min(1,(now-t0)/dur);fn(p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2);if(p<1)requestAnimationFrame(f);else res();}requestAnimationFrame(f);});}
+function makePacket(fx,W){const g=S("g",{class:"pk"},fx);const tag=S("g",{class:"pk-tag"},g);const r=S("rect",{rx:5,height:20},tag);const t=S("text",{},tag);S("circle",{r:9,class:"pk-dot"},g);return {g,r,t,W,x:0,y:0,w:40};}
+function placePk(p){p.g.setAttribute("transform",`translate(${p.x},${p.y})`);let lx=-p.w/2;if(p.x+lx<4)lx=4-p.x;if(p.x+lx+p.w>p.W-4)lx=p.W-4-p.w-p.x;const ly=p.y<60?16:-40;
+  p.r.setAttribute("x",lx);p.r.setAttribute("y",ly);p.t.setAttribute("x",lx+7);p.t.setAttribute("y",ly+14);}
+function setLabel(p,text,enc){p.t.textContent=text;p.w=Math.max(40,text.length*6.9+14);p.r.setAttribute("width",p.w);p.g.classList.toggle("enc",!!enc);placePk(p);}
+function flash(fx,pt){const c=S("circle",{cx:pt.x,cy:pt.y,r:10,class:"flash"},fx);tween(450,k=>{c.setAttribute("r",10+k*26);c.setAttribute("opacity",1-k);}).then(()=>c.remove());}
+function mark(fx,p,cls,text,H){
+  if(cls==="bad"){S("line",{x1:p.x-13,y1:p.y-13,x2:p.x+13,y2:p.y+13,class:"mark bad"},fx);S("line",{x1:p.x+13,y1:p.y-13,x2:p.x-13,y2:p.y+13,class:"mark bad"},fx);}
+  else S("circle",{cx:p.x,cy:p.y,r:19,class:"mark "+cls},fx);
+  const ty=p.y>H-50?p.y-30:p.y+40;const w=text.length*9+14;
+  S("rect",{x:p.x-w/2,y:ty-15,width:w,height:21,rx:5,class:"mark-bg"},fx);
+  const t=S("text",{x:p.x,y:ty,"text-anchor":"middle",class:"mark-text "+cls},fx);t.textContent=text;
+}
+async function runPacket(svg,d,sc,cls,text,opts){
+  opts=opts||{};const my=++animToken;
+  const fx=svg.querySelector(".fx");fx.innerHTML="";
+  if(!opts.keepHits)svg.querySelectorAll(".node").forEach(n=>n.classList.remove("hit-ok","hit-bad","alarm"));
+  showTunnel(svg,d,!!sc.vpn);
+  const p=makePacket(fx,d.w);const pts=sc.path.map(id=>d.nodes[id]);
+  p.x=pts[0].x;p.y=pts[0].y;setLabel(p,sc.tag,sc.tagEnc);
+  await sleep(350);
+  for(let i=1;i<pts.length;i++){
+    if(my!==animToken)return false;
+    const a=pts[i-1];let b=pts[i];
+    if(i===pts.length-1&&!b.hidden&&b.w){const dx=b.x-a.x,dy=b.y-a.y;const tx=dx?(b.w/2+8)/Math.abs(dx):Infinity,ty=dy?(23+8)/Math.abs(dy):Infinity;const s=Math.min(tx,ty);if(s<1)b={x:b.x-dx*s,y:b.y-dy*s};}
+    const dist=Math.hypot(b.x-a.x,b.y-a.y);
+    await tween(Math.min(1300,Math.max(450,dist*3.4)),k=>{p.x=a.x+(b.x-a.x)*k;p.y=a.y+(b.y-a.y)*k;placePk(p);});
+    if(my!==animToken)return false;
+    const st=sc.steps&&sc.steps[sc.path[i]];
+    if(st){setLabel(p,st.tag,st.enc);flash(fx,b);await sleep(300);}
+  }
+  if(my!==animToken)return false;
+  mark(fx,p,cls,text,d.h);
+  if(sc.alarm){const n=svg.querySelector(`.node[data-id="${sc.alarm}"]`);if(n)n.classList.add("alarm");}
+  return true;
+}
+function stopAnim(svg,d){animToken++;const fx=svg.querySelector(".fx");if(fx)fx.innerHTML="";showTunnel(svg,d,false);svg.querySelectorAll(".node").forEach(n=>n.classList.remove("hit-ok","hit-bad","alarm"));}
+
+
+/* ---------------- STATE ---------------- */
+const KEY="netiso-lab-v2";
+let state={station:0,sel:{},results:{},notes:{},design:{},why:{},attempts:[],teacher:false};
+try{const s=JSON.parse(localStorage.getItem(KEY)||"null");if(s)state=Object.assign(state,s);}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
+let pending=null, sending=false, testing=false;
+const rk=(st,i)=>st.id+":"+i;
+const stationDone=st=>st.scenarios.every((s,i)=>state.results[rk(st,i)]);
+const part1Done=()=>STATIONS.every(stationDone);
+const esc=t=>String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const SLOW=2.6;
+
+/* ---------------- SCORING ---------------- */
+const P1_PTS=10;
+const P2_VALUES=[20,15,10,5];
+const P1_TOTAL=STATIONS.reduce((a,st)=>a+st.scenarios.length,0);
+const P1_MAX=P1_TOTAL*P1_PTS, P2_MAX=ASSETS.length*P2_VALUES[0];
+function assetInfo(id){
+  let fails=0,passedOn=null,pts=0;const tries=[];
+  state.attempts.forEach(at=>{const it=at.items.find(x=>x.id===id);if(!it)return;tries.push({n:at.n,choice:it.choice,why:it.why,pass:it.pass});
+    if(it.pass&&passedOn==null){passedOn=at.n;pts=P2_VALUES[Math.min(fails,P2_VALUES.length-1)];}else if(!it.pass)fails++;});
+  return {fails,passedOn,pts,tries,worth:P2_VALUES[Math.min(fails,P2_VALUES.length-1)]};
+}
+function scores(){
+  const r=Object.values(state.results);
+  const p1Right=r.filter(x=>x.correct).length,p1Wrong=r.length-p1Right;
+  let p2Pts=0,p2Wrong=0,p2Solved=0;
+  ASSETS.forEach(a=>{const i=assetInfo(a.id);p2Pts+=i.pts;p2Wrong+=i.fails;if(i.passedOn)p2Solved++;});
+  return {p1Right,p1Wrong,p1Sent:r.length,p1Pts:p1Right*P1_PTS,p2Pts,p2Wrong,p2Solved,tests:state.attempts.length,
+          total:p1Right*P1_PTS+p2Pts,wrong:p1Wrong+p2Wrong};
+}
+function updateScoreboard(){
+  const s=scores();
+  $("#chip-pts").textContent=`Points ${s.total} / ${P1_MAX+P2_MAX}`;
+  $("#chip-miss").textContent=`Wrong answers ${s.wrong}`;
+  $("#p1-score").textContent=`${s.p1Pts} / ${P1_MAX} points · ${s.p1Sent} of ${P1_TOTAL} packets sent · ${s.p1Wrong} wrong`;
+  if(currentView()==="results")renderResults();
+  if(window.SOC_LAB)window.SOC_LAB.progress({score:s.total,max:P1_MAX+P2_MAX}); /* SOC Command: report score to gradebook */
+}
+
+/* ---------------- VIEWS ---------------- */
+const VIEWS=["packets","hospital","results"];
+function currentView(){const h=location.hash.replace("#","");return VIEWS.includes(h)?h:"packets";}
+function showView(){
+  const v=currentView();
+  VIEWS.forEach(x=>{$("#view-"+x).classList.toggle("on",x===v);});
+  document.querySelectorAll(".tabs a").forEach(a=>a.setAttribute("aria-current",a.dataset.view===v?"page":"false"));
+  if(v==="results")renderResults();
+  if(v==="hospital")renderPart2();
+}
+window.addEventListener("hashchange",()=>{showView();window.scrollTo(0,$(".bar-nav").offsetTop);});
+
+/* ---------------- PART 1 UI ---------------- */
+function renderRail(){
+  const r=$("#rail");r.innerHTML="";
+  STATIONS.forEach((st,i)=>{const b=document.createElement("button");b.type="button";
+    const n=st.scenarios.filter((s,j)=>state.results[rk(st,j)]).length;const done=n===st.scenarios.length;
+    b.className=(i===state.station?"current ":"")+(done?"done":"");
+    b.setAttribute("aria-current",i===state.station?"step":"false");
+    b.innerHTML=`<span class="rk">#${st.rank}</span><span class="nm">${st.name}</span><span class="stt">${done?"Complete":n?n+" of "+st.scenarios.length+" sent":"Not started"}</span>`;
+    b.addEventListener("click",()=>goStation(i));
+    r.appendChild(b);});
+}
+function goStation(i){if(sending)return;state.station=i;pending=null;save();renderRail();renderStation();}
+function renderStation(){
+  const st=STATIONS[state.station];const el=$("#station");
+  if(state.sel[st.id]==null)state.sel[st.id]=0;
+  el.innerHTML=`
+    <div class="st-head"><div class="rank">#${st.rank}<small>of 6</small></div>
+      <div><h3>${st.name}</h3><p class="by">Isolates by <b>${st.by}</b></p><p class="analogy">${st.analogy}</p></div></div>
+    <ul class="keys">${st.points.map(p=>`<li><b>${p[0]}</b> ${p[1]}</li>`).join("")}</ul>
+    <div class="diagram-wrap"><svg class="diagram" role="img" aria-label="Network diagram for ${st.name}"></svg></div>
+    <div class="play"><div><h4>Packets to send</h4><div class="pk-list"></div></div><div class="panel" aria-live="polite"></div></div>
+    <div class="notes">
+      <label for="notes-${st.id}">My notes on ${st.name}</label>
+      <span class="hint">In your own words: how does it isolate a network, what does it protect against, and what is its weak spot?</span>
+      <textarea id="notes-${st.id}"></textarea>
+      <span class="saved" id="notes-saved"></span>
+    </div>
+    <div class="st-foot"><span class="cnt"></span><span class="foot-btns"><button class="btn ghost prev" type="button">← Previous</button><button class="btn next" type="button"></button></span></div>
+    <div class="instr"><button class="linkbtn reset-st" type="button">Instructor: reset this station</button></div>`;
+  const svg=el.querySelector("svg");drawDiagram(svg,st.diagram);
+  const ta=el.querySelector("textarea");ta.value=state.notes[st.id]||"";
+  ta.addEventListener("input",()=>{state.notes[st.id]=ta.value;save();$("#notes-saved").textContent="Saved to My results.";});
+  if(ta.value)$("#notes-saved").textContent="Saved to My results.";
+  renderPackets(st,svg);renderPanel(st,svg);renderFoot(st);
+}
+function renderPackets(st,svg){
+  const list=$("#station .pk-list");list.innerHTML="";
+  st.scenarios.forEach((sc,i)=>{const r=state.results[rk(st,i)];const b=document.createElement("button");b.type="button";
+    b.className="pk-btn"+(state.sel[st.id]===i?" sel":"");b.disabled=sending;
+    b.innerHTML=`<span>${sc.name}</span><span class="chip ${r?(r.correct?"right":"wrong"):""}">${r?(r.correct?"✓ right":"✗ missed"):"not sent"}</span>`;
+    b.addEventListener("click",()=>{if(sending)return;state.sel[st.id]=i;pending=null;save();stopAnim(svg,st.diagram);renderPackets(st,svg);renderPanel(st,svg);});
+    list.appendChild(b);});
+}
+async function play(svg,d,sc,cls,text,slow,opts){pace=slow?SLOW:1;try{return await runPacket(svg,d,sc,cls,text,opts);}finally{pace=1;}}
+function renderPanel(st,svg){
+  const i=state.sel[st.id];const sc=st.scenarios[i];const r=state.results[rk(st,i)];const panel=$("#station .panel");
+  if(sending){panel.innerHTML=`<p class="sc-title">${sc.name}</p><p>Packet in flight. Watch the diagram.</p>`;return;}
+  if(!r){
+    panel.innerHTML=`<p class="sc-title">${sc.name}</p><p>${sc.desc}</p>
+      <fieldset class="preds"><legend>Your prediction: ${sc.ask||"what happens to this packet?"} You only get one try.</legend>
+      ${Object.keys(OUT).map(o=>`<button type="button" class="pred ${OUT[o].cls}" data-o="${o}" aria-pressed="${pending===o}"><span class="w">${o}</span><span class="d">${OUT[o].def}</span></button>`).join("")}
+      </fieldset>
+      <button class="btn send" type="button" ${pending?"":"disabled"}>${pending?"Lock in “"+pending+"” and send":"Pick a prediction first"}</button>`;
+    panel.querySelectorAll(".pred").forEach(b=>b.addEventListener("click",()=>{pending=b.dataset.o;renderPanel(st,svg);}));
+    panel.querySelector(".send").addEventListener("click",async()=>{
+      if(!pending)return;const pred=pending;
+      state.results[rk(st,i)]={pred,correct:sc.accept.includes(pred)};save();
+      sending=true;pending=null;renderPackets(st,svg);renderPanel(st,svg);
+      await play(svg,st.diagram,sc,OUT[sc.result].cls,sc.result.toUpperCase(),false);
+      sending=false;
+      renderPackets(st,svg);renderPanel(st,svg);renderFoot(st);renderRail();updateScoreboard();
+    });
+  }else{
+    const o=OUT[sc.result];
+    panel.innerHTML=`<p class="sc-title">${sc.name}</p><p>${sc.desc}</p>
+      <div class="verdict ${r.correct?"right":"wrong"}"><span class="tag">${r.correct?"Your prediction was right · +"+P1_PTS+" points":"Not quite · 0 points"}</span>
+        You predicted <b>${r.pred}</b>. The packet was <span class="pill ${o.cls}">${sc.result}</span></div>
+      <p>${sc.explain}</p>
+      <div class="sniff"><span>What a snooper watching the network sees</span><code>${sc.sniff}</code></div>
+      <div class="replays"><button class="btn ghost small rp" type="button">Replay</button><button class="btn ghost small rps" type="button">Replay slowly</button></div>`;
+    const go=async slow=>{if(sending)return;sending=true;renderPackets(st,svg);panel.querySelectorAll(".replays button").forEach(b=>b.disabled=true);
+      await play(svg,st.diagram,sc,o.cls,sc.result.toUpperCase(),slow);sending=false;renderPackets(st,svg);panel.querySelectorAll(".replays button").forEach(b=>b.disabled=false);};
+    panel.querySelector(".rp").addEventListener("click",()=>go(false));
+    panel.querySelector(".rps").addEventListener("click",()=>go(true));
+  }
+}
+function renderFoot(st){
+  const n=st.scenarios.filter((s,j)=>state.results[rk(st,j)]).length;
+  $("#station .cnt").textContent=`${n} of ${st.scenarios.length} packets sent at this station`;
+  const prev=$("#station .prev");prev.disabled=state.station===0;
+  prev.onclick=()=>{goStation(state.station-1);};
+  const btn=$("#station .next");const last=state.station===STATIONS.length-1;
+  btn.textContent=last?"Go to Part 2: the hospital →":`Next: #${STATIONS[state.station+1].rank} ${STATIONS[state.station+1].name} →`;
+  btn.onclick=()=>{if(sending)return;if(last){location.hash="hospital";return;}goStation(state.station+1);$("#rail").scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"});};
+}
+
+/* ---------------- PART 2 UI ---------------- */
+let hospDrawn=false;
+function renderPart2(){
+  const open=part1Done()||state.teacher;
+  const done=STATIONS.filter(stationDone).length;
+  $("#p2-lock").style.display=open?"none":"block";
+  $("#p2-lock").textContent=`Locked: finish all six stations in Part 1 to unlock the hospital challenge (${done} of 6 complete).`;
+  $("#p2-fields").disabled=!open;
+  if(!hospDrawn){drawDiagram($("#hosp-svg"),HOSP);hospDrawn=true;paintHosp();}
+  const wrap=$("#assets");
+  if(!wrap.children.length){
+    ASSETS.forEach((a,i)=>{const c=document.createElement("div");c.className="asset";c.dataset.id=a.id;
+      c.innerHTML=`<span class="num">Problem ${i+1}</span><h4>${a.name}</h4><p>${a.detail}</p>
+        <span class="worth"></span>
+        <label for="sel-${a.id}">Technique</label>
+        <select id="sel-${a.id}"><option value="">Choose one…</option>${TECH.map(t=>`<option value="${t.id}">${t.name}</option>`).join("")}</select>
+        <label for="why-${a.id}">Why? (one sentence)</label>
+        <input id="why-${a.id}" type="text">
+        <span class="status"></span>`;
+      wrap.appendChild(c);
+      const s=c.querySelector("select");s.value=state.design[a.id]||"";
+      s.addEventListener("change",()=>{state.design[a.id]=s.value;save();checkDesign();});
+      const w=c.querySelector("input");w.value=state.why[a.id]||"";
+      w.addEventListener("input",()=>{state.why[a.id]=w.value;save();checkDesign();});
+    });
+  }
+  ASSETS.forEach(a=>{const c=document.querySelector(`.asset[data-id="${a.id}"]`);const info=assetInfo(a.id);
+    const solved=!!info.passedOn;
+    c.querySelector("select").disabled=solved;c.querySelector("input").disabled=solved;
+    c.classList.toggle("pass",solved);
+    const lastAt=state.attempts[state.attempts.length-1];const lastIt=lastAt&&lastAt.items.find(x=>x.id===a.id);
+    c.classList.toggle("fail",!solved&&!!lastIt&&!lastIt.pass);
+    const wEl=c.querySelector(".worth");
+    if(solved){wEl.textContent=`Earned ${info.pts} points`;wEl.className="worth";}
+    else{wEl.textContent=info.fails?`Now worth ${info.worth} points (${info.fails} miss${info.fails>1?"es":""})`:`Worth ${info.worth} points`;wEl.className="worth"+(info.fails?" low":"");}
+    c.querySelector(".status").textContent=solved?`Solved on try ${info.passedOn}. Locked in.`:"";
+  });
+  checkDesign();renderTests();renderReplays();
+}
+function checkDesign(){
+  const counts={};ASSETS.forEach(a=>{const v=state.design[a.id];if(v)counts[v]=(counts[v]||0)+1;});
+  const dups=[];ASSETS.forEach(a=>{const c=document.querySelector(`.asset[data-id="${a.id}"]`);if(!c)return;const v=state.design[a.id];const d=v&&counts[v]>1;c.classList.toggle("dup",!!d);if(d&&!dups.includes(TNAME[v]))dups.push(TNAME[v]);});
+  const open=ASSETS.filter(a=>!assetInfo(a.id).passedOn);
+  const unpicked=open.filter(a=>!state.design[a.id]).length;
+  const noWhy=open.filter(a=>!(state.why[a.id]||"").trim()).length;
+  const msg=$("#design-msg");const btn=$("#test-btn");
+  msg.className="msg";
+  if(!open.length){msg.textContent="All six problems solved. Nice work.";btn.disabled=true;return;}
+  if(dups.length){msg.textContent=`${dups.join(" and ")} ${dups.length>1?"are":"is"} used more than once. Each technique goes with exactly one problem.`;msg.className="msg warn";btn.disabled=true;}
+  else if(unpicked){msg.textContent=`Choose a technique for ${unpicked} more problem${unpicked>1?"s":""}.`;btn.disabled=true;}
+  else if(noWhy){msg.textContent=`Write your reason for ${noWhy} more problem${noWhy>1?"s":""} before testing.`;btn.disabled=true;}
+  else{const n=state.attempts.length;msg.textContent=n?`This will be test #${n+1}. Each miss lowers that problem’s points.`:"Ready for your first test.";btn.disabled=testing;}
+}
+function paintHosp(highlightLast){
+  const svg=$("#hosp-svg");svg.querySelectorAll(".node").forEach(n=>n.classList.remove("hit-ok","hit-bad"));
+  const lastAt=state.attempts[state.attempts.length-1];
+  ASSETS.forEach(a=>{const n=svg.querySelector(`.node[data-id="${a.node}"]`);if(!n)return;const info=assetInfo(a.id);
+    if(info.passedOn)n.classList.add("hit-ok");
+    else if(lastAt){const it=lastAt.items.find(x=>x.id===a.id);if(it&&!it.pass)n.classList.add("hit-bad");}});
+}
+async function animateAttempt(at,slow){
+  const svg=$("#hosp-svg");
+  svg.querySelectorAll(".node").forEach(n=>n.classList.remove("hit-ok","hit-bad"));
+  ASSETS.forEach(a=>{const info=assetInfo(a.id);if(info.passedOn&&info.passedOn<at.n){const n=svg.querySelector(`.node[data-id="${a.node}"]`);if(n)n.classList.add("hit-ok");}});
+  for(const it of at.items){const a=ASSETS.find(x=>x.id===it.id);const run=it.pass?a.pass:a.fail;
+    await play(svg,HOSP,run,it.pass?"ok":"bad",run.mark,slow,{keepHits:true});
+    const n=svg.querySelector(`.node[data-id="${a.node}"]`);if(n)n.classList.add(it.pass?"hit-ok":"hit-bad");
+    pace=slow?SLOW:1;await sleep(500);pace=1;}
+}
+$("#test-btn").addEventListener("click",async()=>{
+  if(testing)return;
+  const items=ASSETS.filter(a=>!assetInfo(a.id).passedOn).map(a=>({id:a.id,choice:state.design[a.id],why:(state.why[a.id]||"").trim(),pass:state.design[a.id]===a.answer}));
+  if(!items.length)return;
+  const at={n:state.attempts.length+1,items};
+  state.attempts.push(at);save();
+  testing=true;$("#test-btn").disabled=true;$("#p2-score").textContent=`Running test #${at.n}…`;
+  $("#tests").innerHTML="";renderReplays();
+  await animateAttempt(at,false);
+  testing=false;renderPart2();updateScoreboard();
+});
+function renderReplays(){
+  const box=$("#hosp-replays");
+  if(!state.attempts.length||testing){box.innerHTML="";return;}
+  const n=state.attempts.length;
+  box.innerHTML=`<button class="btn ghost small" type="button" data-s="0">Replay test #${n}</button><button class="btn ghost small" type="button" data-s="1">Replay test #${n} slowly</button>`;
+  box.querySelectorAll("button").forEach(b=>b.addEventListener("click",async()=>{
+    if(testing)return;testing=true;box.querySelectorAll("button").forEach(x=>x.disabled=true);$("#test-btn").disabled=true;
+    await animateAttempt(state.attempts[state.attempts.length-1],b.dataset.s==="1");
+    testing=false;paintHosp();renderReplays();checkDesign();}));
+}
+function renderTests(){
+  const s=scores();
+  $("#p2-score").innerHTML=state.attempts.length?`<span class="score">${s.p2Pts} / ${P2_MAX} points</span> · ${s.p2Solved} of 6 solved · ${s.tests} test${s.tests>1?"s":""}`:`${P2_MAX} points possible`;
+  const box=$("#tests");box.innerHTML="";
+  if(!state.attempts.length){box.innerHTML=`<div class="trow"><span class="pill chg">Waiting</span><div>Match all six problems, write your reasons, then press <strong>Test my design</strong>. Results for each problem appear here.</div></div>`;return;}
+  const lastAt=state.attempts[state.attempts.length-1];
+  ASSETS.forEach(a=>{const info=assetInfo(a.id);const it=lastAt.items.find(x=>x.id===a.id);const row=document.createElement("div");row.className="trow";
+    if(it){const run=it.pass?a.pass:a.fail;
+      row.innerHTML=`<span class="pill ${it.pass?"ok":"bad"}">${it.pass?"Pass":"Fail"}</span><div><b>${a.name} → ${TNAME[it.choice]}${it.pass?" · +"+info.pts+" points":""}</b>${it.pass?run.msg:run.msg+" "+TECH_DOES[it.choice]+" This problem needs "+a.need+"."}</div>`;}
+    else{row.innerHTML=`<span class="pill ok">Solved</span><div><b>${a.name} → ${TNAME[state.design[a.id]]||""}</b>Solved on try ${info.passedOn} for ${info.pts} points.</div>`;}
+    box.appendChild(row);});
+}
+
+/* ---------------- RESULTS PAGE ---------------- */
+function renderResults(){
+  const s=scores();
+  let h=`<div class="tiles">
+    <div class="tile"><div class="k">Total points</div><div class="v">${s.total}<span class="s"> / ${P1_MAX+P2_MAX}</span></div><div class="s">${Math.round(s.total/(P1_MAX+P2_MAX)*100)}% of possible</div></div>
+    <div class="tile miss"><div class="k">Wrong answers</div><div class="v">${s.wrong}</div><div class="s">${s.p1Wrong} predictions · ${s.p2Wrong} design picks</div></div>
+    <div class="tile"><div class="k">Part 1</div><div class="v">${s.p1Pts}<span class="s"> / ${P1_MAX}</span></div><div class="s">${s.p1Right} of ${s.p1Sent} correct · ${P1_TOTAL-s.p1Sent} not sent</div></div>
+    <div class="tile"><div class="k">Part 2</div><div class="v">${s.p2Pts}<span class="s"> / ${P2_MAX}</span></div><div class="s">${s.p2Solved} of 6 solved · ${s.tests} test${s.tests===1?"":"s"} run</div></div>
+  </div>`;
+  h+=`<h3 class="part-h">Part 1 · Predictions and notes</h3>`;
+  STATIONS.forEach(st=>{
+    const rs=st.scenarios.map((sc,j)=>state.results[rk(st,j)]);const c=rs.filter(r=>r&&r.correct).length;
+    h+=`<div class="rblock"><h3>#${st.rank} ${st.name}<small>${c} of ${st.scenarios.length} correct · ${c*P1_PTS} points</small></h3>
+      <div class="tbl-wrap"><table><thead><tr><th>Packet</th><th>My prediction</th><th>What happened</th><th>Result</th></tr></thead><tbody>
+      ${st.scenarios.map((sc,j)=>{const r=rs[j];return `<tr><td>${sc.name}</td><td>${r?r.pred:"—"}</td><td>${r?`<span class="pill ${OUT[sc.result].cls}">${sc.result}</span>`:"—"}</td>${r?(r.correct?`<td class="r">✓ +${P1_PTS}</td>`:`<td class="w">✗ 0</td>`):`<td class="n">Not sent</td>`}</tr>`;}).join("")}
+      </tbody></table></div>
+      <div class="mynotes"><span class="lab">My notes</span>${(state.notes[st.id]||"").trim()?esc(state.notes[st.id].trim()):"<em>No notes yet.</em>"}</div></div>`;
+  });
+  h+=`<h3 class="part-h">Part 2 · Hospital design and reasoning</h3>`;
+  if(!state.attempts.length)h+=`<div class="rblock"><p>No tests run yet.</p></div>`;
+  ASSETS.forEach((a,i)=>{const info=assetInfo(a.id);if(!state.attempts.length)return;
+    h+=`<div class="rblock"><h3>${i+1}. ${a.name}<small>${info.passedOn?`Solved on try ${info.passedOn} · ${info.pts} points`:info.tries.length?`Not solved yet · ${info.fails} miss${info.fails===1?"":"es"}`:"Not tested yet"}</small></h3>
+      <ul class="tries">${info.tries.map(t=>`<li><span class="pill ${t.pass?"ok":"bad"}">Try ${t.n}</span><div><b>${TNAME[t.choice]}</b> ${t.pass?"✓ correct":"✗ wrong"}<br><span class="why">“${esc(t.why)}”</span></div></li>`).join("")||"<li><span class='pill chg'>—</span><div>No tries yet.</div></li>"}</ul></div>`;
+  });
+  $("#results").innerHTML=h;
+}
+
+/* ---------------- INSTRUCTOR PASSWORD ---------------- */
+const PW_HASH="e698b79bc98ab9ceef3681191123a03423a501912b0b1fc711bac0f4881038da";
+async function sha256(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join("");}
+function askPassword(title,desc,okLabel){
+  return new Promise(resolve=>{
+    const m=$("#pw-modal"),f=$("#pw-form"),inp=$("#pw-input"),err=$("#pw-err");
+    $("#pw-title").textContent=title;$("#pw-desc").textContent=desc;$("#pw-ok").textContent=okLabel||"Confirm";
+    inp.value="";err.textContent="";m.hidden=false;setTimeout(()=>inp.focus(),0);
+    const done=v=>{m.hidden=true;f.onsubmit=null;$("#pw-cancel").onclick=null;document.removeEventListener("keydown",onKey);resolve(v);};
+    const onKey=e=>{if(e.key==="Escape")done(false);};
+    document.addEventListener("keydown",onKey);
+    $("#pw-cancel").onclick=()=>done(false);
+    f.onsubmit=async e=>{e.preventDefault();let h="";try{h=await sha256(inp.value);}catch(x){err.textContent="This browser can’t check the password here.";return;}
+      if(h===PW_HASH)done(true);else{err.textContent="Incorrect password.";inp.select();}};
+  });
+}
+document.addEventListener("click",async e=>{
+  const b=e.target.closest(".reset-st");if(!b||sending)return;
+  const st=STATIONS[state.station];
+  if(!(await askPassword(`Reset #${st.rank} ${st.name}`,"Erases this student’s predictions and points for this station so they can answer again. Their notes are kept.","Reset station")))return;
+  st.scenarios.forEach((sc,i)=>{delete state.results[rk(st,i)];});
+  state.sel[st.id]=0;pending=null;save();renderRail();renderStation();updateScoreboard();
+});
+$("#reset-p2").addEventListener("click",async()=>{
+  if(testing)return;
+  if(!(await askPassword("Reset Part 2","Erases every test, technique choice, reason and point in the hospital challenge.","Reset Part 2")))return;
+  state.attempts=[];state.design={};state.why={};save();
+  animToken++;const svg=$("#hosp-svg");const fx=svg.querySelector(".fx");if(fx)fx.innerHTML="";
+  $("#assets").innerHTML="";$("#tests").innerHTML="";paintHosp();renderPart2();updateScoreboard();
+});
+
+/* ---------------- INIT ---------------- */
+$("#teacher-btn").addEventListener("click",async()=>{
+  if(!state.teacher&&!(await askPassword("Unlock Part 2","Lets this browser open Part 2 before all six stations are finished.","Unlock")))return;
+  state.teacher=!state.teacher;save();$("#teacher-btn").textContent=state.teacher?"Teacher preview on: lock Part 2 again":"Teacher preview: unlock Part 2";renderPart2();});
+if(state.teacher)$("#teacher-btn").textContent="Teacher preview on: lock Part 2 again";
+renderRail();renderStation();renderPart2();updateScoreboard();showView();
+})();
+</script>
+</body>
+</html>

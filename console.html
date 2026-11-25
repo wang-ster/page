@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — CISO Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>CISO COMMAND CONSOLE<small>// FULL CLEARANCE</small></h1>
+      </div>
+      <div class="tabbar" id="tabs"></div>
+      <div class="page-body" id="body"><p class="loading">LOADING</p></div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script>
+(async () => {
+  const me = await Core.init('CONSOLE', { ciso: true });
+  const { sb, esc, must, api, toast, modal, confirmBox } = Core;
+  const body = document.getElementById('body');
+  const ICONS = ['candy','chips','star','music','shield','clock','ticket','chest','coin','crystal','medal','lock','terminal'];
+  const TABS = { operators: 'OPERATORS', labs: 'LABS', grades: 'GRADEBOOK', reqs: 'REQUISITIONS', shop: 'SHOP', ann: 'ANNOUNCEMENTS', ranks: 'RANKS' };
+  const $ = (s, r = body) => r.querySelector(s);
+  const $$ = (s, r = body) => [...r.querySelectorAll(s)];
+  const run = async (fn, okMsg) => { try { await fn(); if (okMsg) toast(okMsg); } catch(e){ toast('ERROR', e.message); } };
+
+  function tabBar(){
+    const cur = location.hash.slice(1) in TABS ? location.hash.slice(1) : 'operators';
+    document.getElementById('tabs').innerHTML = Object.entries(TABS).map(([k, v]) =>
+      `<a class="fchip ${k === cur ? 'on' : ''}" href="#${k}">${v}</a>`).join('');
+    return cur;
+  }
+  async function show(){
+    const t = tabBar();
+    body.innerHTML = '<p class="loading">LOADING</p>';
+    try { await VIEWS[t](); } catch(e){ body.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+    Core.hydrate(body);
+  }
+  window.addEventListener('hashchange', show);
+
+  const VIEWS = {
+
+  /* ================= OPERATORS ================= */
+  async operators(){
+    const roster = must(await sb.rpc('roster'));
+    body.innerHTML = `
+      <div class="panel-box">
+        <h3>ISSUE NEW CREDENTIALS</h3>
+        <div class="form-grid">
+          <div><label class="lbl">USERNAME</label><input class="inp" id="nu" placeholder="jsmith" autocapitalize="none"></div>
+          <div><label class="lbl">DISPLAY NAME</label><input class="inp" id="nd" placeholder="J. Smith"></div>
+          <div><label class="lbl">TEMP PASSWORD</label><input class="inp" id="np" placeholder="min 6 chars"></div>
+          <div><label class="lbl">ROLE</label><select class="inp" id="nr"><option value="analyst">Analyst (student)</option><option value="ciso">CISO</option></select></div>
+          <div><button class="btn green" id="create">CREATE</button></div>
+        </div>
+        <details><summary>BULK CREATE (ONE PER LINE: username, Display Name, password)</summary>
+          <textarea class="inp" id="bulk" placeholder="jsmith, Jordan Smith, cyber123&#10;alee, Alex Lee, cyber456"></textarea>
+          <button class="btn sm" id="bulkGo" style="margin-top:8px">CREATE ALL</button> <span id="bulkMsg" class="note"></span>
+        </details>
+      </div>
+      <div class="tbl-wrap"><table class="data">
+        <tr><th>OPERATOR</th><th>ROLE</th><th>LEVEL</th><th>LABS</th><th>COINS</th><th>DIAMONDS</th><th>BONUS XP</th><th>BONUS COINS</th><th>ACTIONS</th></tr>
+        ${roster.map(r => `<tr data-id="${r.id}">
+          <td>${esc(r.display_name || r.username)}<br><span class="muted">${esc(r.username)}</span></td>
+          <td>${r.id === me.id ? '<span class="stamp new">YOU · CISO</span>' : `<select class="inp tiny" data-role style="width:110px">
+              ${['analyst','ciso','pending'].map(x => `<option ${x === r.role ? 'selected' : ''}>${x}</option>`).join('')}</select>`}</td>
+          <td>LV.${r.level}<br><span class="muted">${r.xp} XP</span></td>
+          <td>${r.cleared}/${r.total_labs}</td>
+          <td>${r.coins}</td>
+          <td><div class="actions"><button class="btn sm ghost" data-dia="-1">−</button><b>${r.diamonds}</b><button class="btn sm" data-dia="1">+</button></div>
+            <span class="muted">${r.diamonds_awarded} awarded</span></td>
+          <td><input class="inp tiny" type="number" data-bxp value="${r.bonus_xp}"></td>
+          <td><input class="inp tiny" type="number" data-bco value="${r.bonus_coins}"></td>
+          <td><div class="actions"><button class="btn sm ghost" data-save>SAVE</button><button class="btn sm" data-reset>RESET PW</button>
+            ${r.id === me.id ? '' : '<button class="btn sm red" data-del>DELETE</button>'}</div></td>
+        </tr>`).join('')}
+      </table></div>`;
+
+    $('#create').onclick = () => run(async () => {
+      await api('create_user', { username: $('#nu').value, display_name: $('#nd').value, password: $('#np').value, role: $('#nr').value });
+      show();
+    }, 'OPERATOR CREATED');
+    $('#bulkGo').onclick = async () => {
+      const lines = $('#bulk').value.split('\n').map(l => l.split(',').map(x => x.trim())).filter(l => l[0]);
+      const msg = $('#bulkMsg'); let ok = 0; const bad = [];
+      for (const [u, d, p] of lines){
+        msg.textContent = `Creating ${u}…`;
+        try { await api('create_user', { username: u, display_name: d || u, password: p, role: 'analyst' }); ok++; }
+        catch(e){ bad.push(`${u}: ${e.message}`); }
+      }
+      toast('BULK CREATE', `${ok} created${bad.length ? `, ${bad.length} failed` : ''}`);
+      if (bad.length) alertBox('SOME ACCOUNTS FAILED', bad.join('\n')); else show();
+    };
+    $$('tr[data-id]').forEach(tr => {
+      const id = tr.dataset.id, r = roster.find(x => x.id === id);
+      const role = $('[data-role]', tr);
+      if (role) role.onchange = () => run(() => api('set_role', { user_id: id, role: role.value }), 'ROLE UPDATED');
+      $$('[data-dia]', tr).forEach(b => b.onclick = () => run(async () => {
+        must(await sb.from('profiles').update({ diamonds: Math.max(0, r.diamonds_awarded + +b.dataset.dia) }).eq('id', id));
+        show();
+      }, +b.dataset.dia > 0 ? 'DIAMOND AWARDED' : 'DIAMOND REMOVED'));
+      $('[data-save]', tr).onclick = () => run(async () => {
+        must(await sb.from('profiles').update({ bonus_xp: +$('[data-bxp]', tr).value || 0, bonus_coins: +$('[data-bco]', tr).value || 0 }).eq('id', id));
+        show();
+      }, 'SAVED');
+      $('[data-reset]', tr).onclick = () => {
+        const m = modal(`<h3>RESET PASSWORD</h3><p class="note">New password for <b>${esc(r.username)}</b>:</p>
+          <input class="inp" id="pw" value="${Math.random().toString(36).slice(2, 8)}">
+          <p class="err" id="pe"></p>
+          <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button><button class="btn green" id="go">RESET</button></div>`);
+        $('#go', m.el).onclick = async () => {
+          try { await api('reset_password', { user_id: id, password: $('#pw', m.el).value }); m.close(); toast('PASSWORD RESET', `Give ${r.username} the new password.`); }
+          catch(e){ $('#pe', m.el).textContent = e.message; }
+        };
+      };
+      const del = $('[data-del]', tr);
+      if (del) del.onclick = async () => {
+        if (!await confirmBox('DELETE OPERATOR', `Permanently delete ${r.username} and all their submissions, progress and requisitions?`, 'DELETE', true)) return;
+        run(async () => { await api('delete_user', { user_id: id }); show(); }, 'OPERATOR DELETED');
+      };
+    });
+  },
+
+  /* ================= LABS ================= */
+  async labs(){
+    const labs = must(await sb.from('labs').select('id,code,title,category,threat,xp,description,published,created_at').order('created_at'));
+    const nextCode = 'LAB-' + String(labs.length + 1).padStart(2, '0');
+    const cats = [...new Set([...Object.keys(Core.cfg.categoryIcons), ...labs.map(l => l.category)])];
+    body.innerHTML = `
+      <div class="panel-box">
+        <h3>UPLOAD A MINI-LAB (.HTML)</h3>
+        <p class="note">It goes live for students the moment you upload it (untick Published to save it as a draft).</p>
+        ${labForm({ code: nextCode, category: 'Network', threat: 1, xp: 100, published: true }, cats, true)}
+        <div class="actions" style="margin-top:12px"><button class="btn green" id="up">UPLOAD &amp; PUBLISH</button>
+          <button class="btn ghost" id="starter">IMPORT STARTER LABS</button></div>
+      </div>
+      <div class="tbl-wrap"><table class="data">
+        <tr><th>CODE</th><th>TITLE</th><th>CATEGORY</th><th>XP</th><th>STATUS</th><th>ACTIONS</th></tr>
+        ${labs.map(l => `<tr data-id="${l.id}">
+          <td>${esc(l.code)}</td><td>${esc(l.title)}<br><span class="muted">${esc(l.description)}</span></td>
+          <td>${esc(l.category)}</td><td>${l.xp}</td>
+          <td><button class="btn sm ${l.published ? 'green' : 'ghost'}" data-pub>${l.published ? 'LIVE' : 'DRAFT'}</button></td>
+          <td><div class="actions"><a class="btn sm ghost" href="lab.html?id=${l.id}">OPEN</a><button class="btn sm" data-edit>EDIT</button><button class="btn sm red" data-del>DELETE</button></div></td>
+        </tr>`).join('') || '<tr><td colspan="6" class="muted">No labs yet.</td></tr>'}
+      </table></div>`;
+
+    wireFile(body);
+    $('#up').onclick = () => run(async () => {
+      const row = await readLabForm(body, true);
+      must(await sb.from('labs').insert(row));
+      show();
+    }, 'LAB UPLOADED');
+    $('#starter').onclick = () => run(async () => {
+      const manifest = await (await fetch('starter-labs/manifest.json')).json();
+      let n = 0;
+      for (const s of manifest){
+        if (labs.some(l => l.title === s.title)) continue;
+        const html = await (await fetch('starter-labs/' + s.file)).text();
+        must(await sb.from('labs').insert({ code: s.code, title: s.title, category: s.category, threat: s.threat, xp: s.xp, description: s.description, html, published: true }));
+        n++;
+      }
+      toast('STARTER LABS', n ? `${n} imported` : 'Already imported');
+      show();
+    });
+    $$('tr[data-id]').forEach(tr => {
+      const l = labs.find(x => x.id === tr.dataset.id);
+      $('[data-pub]', tr).onclick = () => run(async () => { must(await sb.from('labs').update({ published: !l.published }).eq('id', l.id)); show(); },
+        l.published ? 'LAB HIDDEN' : 'LAB PUBLISHED');
+      $('[data-del]', tr).onclick = async () => {
+        if (!await confirmBox('DELETE LAB', `Delete ${l.code} "${l.title}"? Student submissions for it are deleted too, and the XP is removed.`, 'DELETE', true)) return;
+        run(async () => { must(await sb.from('labs').delete().eq('id', l.id)); show(); }, 'LAB DELETED');
+      };
+      $('[data-edit]', tr).onclick = () => {
+        const m = modal(`<h3>EDIT ${esc(l.code)}</h3>${labForm(l, cats, false)}
+          <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button><button class="btn green" id="go">SAVE</button></div>`, { wide: true });
+        wireFile(m.el);
+        $('#go', m.el).onclick = () => run(async () => {
+          const row = await readLabForm(m.el, false);
+          must(await sb.from('labs').update(row).eq('id', l.id));
+          m.close(); show();
+        }, 'LAB UPDATED');
+      };
+    });
+  },
+
+  /* ================= GRADEBOOK ================= */
+  async grades(){
+    const labs = must(await sb.from('labs').select('id,code,title').order('created_at'));
+    const filter = sessionStorage.getItem('gradeFilter') || 'ungraded';
+    const labFilter = sessionStorage.getItem('gradeLab') || '';
+    let q = sb.from('completions')
+      .select('user_id,lab_id,score,max_score,submitted_at,grade,feedback,graded_at,profiles(username,display_name),labs(code,title)')
+      .order('submitted_at', { ascending: false });
+    if (labFilter) q = q.eq('lab_id', labFilter);
+    if (filter === 'ungraded') q = q.is('graded_at', null);
+    if (filter === 'graded') q = q.not('graded_at', 'is', null);
+    const rows = must(await q);
+    body.innerHTML = `
+      <div class="toolbar">
+        <select class="inp" id="fl" style="max-width:320px"><option value="">All labs</option>
+          ${labs.map(l => `<option value="${l.id}" ${l.id === labFilter ? 'selected' : ''}>${esc(l.code)} · ${esc(l.title)}</option>`).join('')}</select>
+        <div class="filters">${['ungraded','graded','all'].map(f => `<button class="fchip ${f === filter ? 'on' : ''}" data-f="${f}">${f.toUpperCase()}</button>`).join('')}</div>
+        <span class="summary"><b>${rows.length}</b> SUBMISSIONS</span>
+      </div>
+      <div class="tbl-wrap"><table class="data">
+        <tr><th>OPERATOR</th><th>LAB</th><th>SUBMITTED</th><th>AUTO SCORE</th><th>GRADE</th><th>FEEDBACK</th><th>ACTIONS</th></tr>
+        ${rows.map((r, i) => `<tr data-i="${i}">
+          <td>${esc(r.profiles?.display_name || r.profiles?.username || '?')}<br><span class="muted">${esc(r.profiles?.username || '')}</span></td>
+          <td>${esc(r.labs?.code || '')}<br><span class="muted">${esc(r.labs?.title || '')}</span></td>
+          <td>${new Date(r.submitted_at).toLocaleString()}</td>
+          <td>${r.score != null ? `${r.score}${r.max_score ? ' / ' + r.max_score : ''}` : '<span class="muted">—</span>'}</td>
+          <td><input class="inp tiny" data-grade value="${r.grade ?? ''}" placeholder="${r.score ?? ''}"></td>
+          <td><input class="inp" data-fb value="${esc(r.feedback ?? '')}" style="min-width:180px"></td>
+          <td><div class="actions">
+            <button class="btn sm" data-view>VIEW WORK</button>
+            <button class="btn sm green" data-save>${r.graded_at ? 'UPDATE' : 'RELEASE GRADE'}</button>
+            ${r.graded_at ? '<button class="btn sm ghost" data-reopen>REOPEN</button>' : ''}
+            <button class="btn sm red" data-revoke>REVOKE</button></div></td>
+        </tr>`).join('') || '<tr><td colspan="7" class="muted">Nothing here.</td></tr>'}
+      </table></div>`;
+
+    $('#fl').onchange = e => { sessionStorage.setItem('gradeLab', e.target.value); show(); };
+    $$('[data-f]').forEach(b => b.onclick = () => { sessionStorage.setItem('gradeFilter', b.dataset.f); show(); });
+    $$('tr[data-i]').forEach(tr => {
+      const r = rows[+tr.dataset.i];
+      const key = q => q.eq('user_id', r.user_id).eq('lab_id', r.lab_id);
+      $('[data-save]', tr).onclick = () => run(async () => {
+        const g = $('[data-grade]', tr).value.trim();
+        must(await key(sb.from('completions').update({ grade: g === '' ? r.score : +g, feedback: $('[data-fb]', tr).value.trim() || null, graded_at: new Date().toISOString() })));
+        show();
+      }, 'GRADE RELEASED');
+      const ro = $('[data-reopen]', tr);
+      if (ro) ro.onclick = () => run(async () => { must(await key(sb.from('completions').update({ graded_at: null }))); show(); }, 'REOPENED FOR RESUBMISSION');
+      $('[data-revoke]', tr).onclick = async () => {
+        if (!await confirmBox('REVOKE SUBMISSION', `Delete this submission? ${r.profiles?.username} loses the XP for ${r.labs?.code} until they submit again.`, 'REVOKE', true)) return;
+        run(async () => { must(await key(sb.from('completions').delete())); show(); }, 'SUBMISSION REVOKED');
+      };
+      $('[data-view]', tr).onclick = async () => {
+        const { data } = await key(sb.from('completions').select('data')).single();
+        modal(`<h3>${esc(r.profiles?.username)} · ${esc(r.labs?.code)}</h3>${renderWork(data?.data)}`, { wide: true });
+      };
+    });
+  },
+
+  /* ================= REQUISITIONS ================= */
+  async reqs(){
+    const rows = must(await sb.from('requisitions').select('*, profiles(username,display_name)').order('created_at', { ascending: false }).limit(200));
+    rows.sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1));
+    body.innerHTML = `<p class="note">Pending tickets hold the student's coins/diamonds. <b>Fulfill</b> when you hand over the reward; <b>deny</b> refunds them.</p>
+      <div class="tbl-wrap"><table class="data">
+      <tr><th>TICKET</th><th>OPERATOR</th><th>ITEM</th><th>COST</th><th>DATE</th><th>STATUS</th><th>ACTIONS</th></tr>
+      ${rows.map(r => `<tr data-id="${r.id}">
+        <td>${esc(r.code)}</td><td>${esc(r.profiles?.display_name || r.profiles?.username || '?')}</td><td>${esc(r.item_name)}</td>
+        <td>${r.cost} ${r.currency}</td><td>${new Date(r.created_at).toLocaleString()}</td>
+        <td><span class="stamp ${r.status}">${r.status.toUpperCase()}</span></td>
+        <td>${r.status === 'pending' ? '<div class="actions"><button class="btn sm green" data-s="fulfilled">FULFILL</button><button class="btn sm red" data-s="denied">DENY</button></div>' : ''}</td>
+      </tr>`).join('') || '<tr><td colspan="7" class="muted">No requisitions yet.</td></tr>'}
+      </table></div>`;
+    $$('[data-s]').forEach(b => b.onclick = () => run(async () => {
+      must(await sb.from('requisitions').update({ status: b.dataset.s, resolved_at: new Date().toISOString() }).eq('id', b.closest('tr').dataset.id));
+      show();
+    }, b.dataset.s === 'fulfilled' ? 'FULFILLED' : 'DENIED · REFUNDED'));
+  },
+
+  /* ================= SHOP ================= */
+  async shop(){
+    const items = must(await sb.from('shop_items').select('*').order('sort'));
+    const row = (it, isNew) => `<tr data-id="${it.id || ''}">
+      <td><input class="inp" data-k="name" value="${esc(it.name || '')}" placeholder="Item name"></td>
+      <td><input class="inp" data-k="description" value="${esc(it.description || '')}" placeholder="Description"></td>
+      <td><select class="inp tiny" data-k="icon" style="width:100px">${ICONS.map(i => `<option ${i === it.icon ? 'selected' : ''}>${i}</option>`).join('')}</select></td>
+      <td><select class="inp tiny" data-k="currency" style="width:110px">${['coins','diamonds'].map(c => `<option ${c === it.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
+      <td><input class="inp tiny" type="number" min="1" data-k="cost" value="${it.cost || 100}"></td>
+      <td><input type="checkbox" data-k="active" ${it.active !== false ? 'checked' : ''}></td>
+      <td><div class="actions"><button class="btn sm green" data-save>${isNew ? 'ADD' : 'SAVE'}</button>${isNew ? '' : '<button class="btn sm red" data-del>DELETE</button>'}</div></td>
+    </tr>`;
+    body.innerHTML = `<div class="tbl-wrap"><table class="data">
+      <tr><th>NAME</th><th>DESCRIPTION</th><th>ICON</th><th>CURRENCY</th><th>COST</th><th>ON SALE</th><th>ACTIONS</th></tr>
+      ${items.map(it => row(it, false)).join('')}
+      ${row({ currency: 'coins', icon: 'star' }, true)}
+    </table></div>`;
+    $$('tr[data-id]').forEach((tr, i) => {
+      const read = () => ({
+        name: $('[data-k=name]', tr).value.trim(), description: $('[data-k=description]', tr).value.trim(),
+        icon: $('[data-k=icon]', tr).value, currency: $('[data-k=currency]', tr).value,
+        cost: Math.max(1, +$('[data-k=cost]', tr).value || 1), active: $('[data-k=active]', tr).checked
+      });
+      $('[data-save]', tr).onclick = () => run(async () => {
+        const v = read(); if (!v.name) throw new Error('Name required.');
+        if (tr.dataset.id) must(await sb.from('shop_items').update(v).eq('id', tr.dataset.id));
+        else must(await sb.from('shop_items').insert({ ...v, sort: items.length + 1 }));
+        show();
+      }, 'SHOP UPDATED');
+      const d = $('[data-del]', tr);
+      if (d) d.onclick = async () => {
+        if (!await confirmBox('DELETE ITEM', 'Remove this item from the shop? (Untick "On sale" to just hide it.)', 'DELETE', true)) return;
+        run(async () => { must(await sb.from('shop_items').delete().eq('id', tr.dataset.id)); show(); }, 'ITEM DELETED');
+      };
+    });
+  },
+
+  /* ================= ANNOUNCEMENTS ================= */
+  async ann(){
+    const rows = must(await sb.from('announcements').select('*').order('created_at', { ascending: false }));
+    body.innerHTML = `
+      <div class="panel-box"><h3>POST ANNOUNCEMENT</h3>
+        <label class="lbl">TITLE</label><input class="inp" id="at">
+        <label class="lbl">MESSAGE</label><textarea class="inp" id="ab"></textarea>
+        <button class="btn green" id="post" style="margin-top:10px">POST</button></div>
+      ${rows.map(a => `<div class="brief" data-id="${a.id}"><small>${new Date(a.created_at).toLocaleString()}</small>
+        <h4>${esc(a.title)}</h4><p>${esc(a.body)}</p><button class="btn sm red" data-del style="margin-top:8px">DELETE</button></div>`).join('')}`;
+    $('#post').onclick = () => run(async () => {
+      const title = $('#at').value.trim(); if (!title) throw new Error('Title required.');
+      must(await sb.from('announcements').insert({ title, body: $('#ab').value.trim() }));
+      show();
+    }, 'POSTED');
+    $$('[data-del]').forEach(b => b.onclick = () => run(async () => {
+      must(await sb.from('announcements').delete().eq('id', b.closest('[data-id]').dataset.id)); show();
+    }, 'DELETED'));
+  },
+
+  /* ================= RANKS ================= */
+  async ranks(){
+    const lv = must(await sb.from('levels').select('*').order('xp'));
+    const row = (l, isNew) => `<tr data-level="${isNew ? '' : l.level}">
+      <td><input class="inp tiny" type="number" data-k="level" value="${l.level ?? ''}" ${isNew ? '' : 'disabled'}></td>
+      <td><input class="inp tiny" type="number" data-k="xp" value="${l.xp ?? ''}"></td>
+      <td><input class="inp" data-k="rank" value="${esc(l.rank || '')}"></td>
+      <td><input class="inp" data-k="name" value="${esc(l.name || '')}"></td>
+      <td><input class="inp tiny" type="number" data-k="coins" value="${l.coins ?? 0}"></td>
+      <td><div class="actions"><button class="btn sm green" data-save>${isNew ? 'ADD' : 'SAVE'}</button>${isNew ? '' : '<button class="btn sm red" data-del>DELETE</button>'}</div></td></tr>`;
+    body.innerHTML = `<p class="note">Students level up when their total XP reaches a level's threshold, and that level's <b>coins</b> are added to their wallet. Changes apply to everyone instantly.</p>
+      <div class="tbl-wrap"><table class="data"><tr><th>LEVEL</th><th>XP NEEDED</th><th>RANK TITLE</th><th>MILESTONE</th><th>COINS</th><th>ACTIONS</th></tr>
+      ${lv.map(l => row(l, false)).join('')}${row({ level: (lv.at(-1)?.level || 0) + 1, xp: (lv.at(-1)?.xp || 0) + 500, coins: 100 }, true)}</table></div>`;
+    $$('tr[data-level]').forEach(tr => {
+      const v = () => ({ level: +$('[data-k=level]', tr).value, xp: +$('[data-k=xp]', tr).value, rank: $('[data-k=rank]', tr).value.trim(),
+        name: $('[data-k=name]', tr).value.trim(), coins: +$('[data-k=coins]', tr).value || 0 });
+      $('[data-save]', tr).onclick = () => run(async () => {
+        const x = v(); if (!x.rank || !x.name) throw new Error('Rank and milestone name required.');
+        must(await sb.from('levels').upsert(x)); show();
+      }, 'RANKS UPDATED');
+      const d = $('[data-del]', tr);
+      if (d) d.onclick = () => run(async () => { must(await sb.from('levels').delete().eq('level', +tr.dataset.level)); show(); }, 'LEVEL DELETED');
+    });
+  }
+  };
+
+  /* ---------- lab form helpers ---------- */
+  function labForm(l, cats, needFile){
+    return `<div class="form-grid">
+      <div class="span2"><label class="lbl">HTML FILE ${needFile ? '' : '(OPTIONAL: REPLACE)'}</label><input class="inp" type="file" accept=".html,.htm,text/html" data-f="file"></div>
+      <div><label class="lbl">CODE</label><input class="inp" data-f="code" value="${esc(l.code || '')}"></div>
+      <div class="span2"><label class="lbl">TITLE</label><input class="inp" data-f="title" value="${esc(l.title || '')}" placeholder="auto-filled from the file"></div>
+      <div><label class="lbl">CATEGORY</label><input class="inp" data-f="category" list="catlist" value="${esc(l.category || '')}">
+        <datalist id="catlist">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+      <div><label class="lbl">THREAT (1–3)</label><select class="inp" data-f="threat">${[1,2,3].map(n => `<option ${n === l.threat ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div><label class="lbl">XP</label><input class="inp" type="number" min="0" data-f="xp" value="${l.xp ?? 100}"></div>
+      <div class="span2"><label class="lbl">ONE-LINE DESCRIPTION</label><input class="inp" data-f="description" value="${esc(l.description || '')}"></div>
+      <div><label class="chk"><input type="checkbox" data-f="published" ${l.published !== false ? 'checked' : ''}> Published</label></div>
+    </div>`;
+  }
+  function wireFile(root){
+    const f = $('[data-f=file]', root);
+    f.onchange = async () => {
+      const file = f.files[0]; if (!file) return;
+      const t = (await file.text()).match(/<title[^>]*>([^<]*)<\/title>/i);
+      const title = $('[data-f=title]', root);
+      if (t && !title.value) title.value = t[1].trim();
+    };
+  }
+  async function readLabForm(root, needFile){
+    const g = k => $(`[data-f=${k}]`, root);
+    const row = {
+      code: g('code').value.trim(), title: g('title').value.trim(), category: g('category').value.trim() || 'General',
+      threat: +g('threat').value, xp: Math.max(0, +g('xp').value || 0), description: g('description').value.trim(),
+      published: g('published').checked
+    };
+    const file = g('file').files[0];
+    if (file){
+      if (file.size > 5_000_000) throw new Error('File is larger than 5 MB.');
+      row.html = await file.text();
+    } else if (needFile) throw new Error('Choose an .html file first.');
+    if (!row.code || !row.title) throw new Error('Code and title are required.');
+    return row;
+  }
+
+  /* ---------- turn a submission's saved data into something readable ---------- */
+  function renderWork(d){
+    if (!d) return '<p class="note">No saved work.</p>';
+    const texts = [];
+    const walk = (v, path) => {
+      if (typeof v === 'string'){
+        if (/^[\[{]/.test(v.trim())){ try { return walk(JSON.parse(v), path); } catch(e){} }
+        if (v.trim().split(/\s+/).length >= 4) texts.push([path, v]);
+      } else if (v && typeof v === 'object') for (const k in v) walk(v[k], path ? `${path} › ${k}` : k);
+    };
+    walk(d, '');
+    const parsed = JSON.parse(JSON.stringify(d), (k, v) => { if (typeof v === 'string' && /^[\[{]/.test(v.trim())) { try { return JSON.parse(v); } catch(e){} } return v; });
+    return `<h2 class="lbl">WRITTEN RESPONSES (${texts.length})</h2>
+      <div class="answers">${texts.map(([p, v]) => `<div class="answer"><small>${esc(p)}</small>${esc(v)}</div>`).join('') || '<p class="note">No written answers found.</p>'}</div>
+      <details><summary>ALL SAVED DATA</summary><pre class="raw">${esc(JSON.stringify(parsed, null, 2))}</pre></details>`;
+  }
+  function alertBox(title, text){ modal(`<h3>${esc(title)}</h3><pre class="raw">${esc(text)}</pre>`); }
+
+  show();
+})();
+</script>
+</body>
+</html>

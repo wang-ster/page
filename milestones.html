@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
 </head>
 <body>
 <canvas id="splash" width="320" height="180"></canvas>
@@ -23,9 +26,9 @@
         <h1>RANKS &amp; MILESTONES<small>// CAREER PROGRESSION</small></h1>
       </div>
       <div class="page-body">
-        <p class="note">Clear mini-labs to earn <b>XP</b>. Each new level unlocks a milestone that pays out <b>coins</b>.
-          <b>Diamonds</b> are awarded personally by your instructor for great work and extra credit.</p>
-        <div class="track" id="track"></div>
+        <p class="note">Submit mini-labs to earn <b>XP</b>. Each new level is a milestone that pays out <b>coins</b>.
+          <b>Diamonds</b> are awarded personally by your CISO for great work and extra credit.</p>
+        <div class="track" id="track"><p class="loading">LOADING</p></div>
       </div>
     </section>
   </main>
@@ -33,34 +36,27 @@
   <footer id="nav" class="nav frame"></footer>
 </div>
 
-<script src="data/config.js"></script>
-<script src="assets/core.js"></script>
 <script>
-  Core.init('RANKS');
-  const { esc, icon } = Core;
-  const p = Core.profile();
+(async () => {
+  const me = await Core.init('RANKS');
+  const { esc, icon, sb, must } = Core;
+  const levels = must(await sb.from('levels').select('*').order('xp'));
+  const pct = me.next_xp ? (me.xp - me.cur_xp) / (me.next_xp - me.cur_xp) : 1;
 
-  document.getElementById('track').innerHTML = SOC.levels.map((l, i) => {
-    const done = i <= p.idx, next = i === p.idx + 1;
+  document.getElementById('track').innerHTML = levels.map(l => {
+    const done = l.xp <= me.xp, next = l.level === me.next_level;
     const cls = done ? 'done' : next ? 'next' : 'locked';
-    const state = done ? (i === 0 ? 'START' : '✔ CLAIMED') : next ? `${l.xp - p.xp} XP TO GO` : 'LOCKED';
-    const bar = next
-      ? `<div class="bar mini"><i style="width:${(p.pct*100).toFixed(1)}%"></i><span>${p.xp}/${l.xp}</span></div>` : '';
+    const state = done ? (l.xp === 0 ? 'START' : '✔ CLAIMED') : next ? `${l.xp - me.xp} XP TO GO` : 'LOCKED';
+    const bar = next ? `<div class="bar mini"><i style="width:${(pct*100).toFixed(1)}%"></i><span>${me.xp}/${l.xp}</span></div>` : '';
     return `
     <div class="ms frame sm ${cls}">
-      <div class="ms-lv">${i + 1}</div>
-      <div>
-        <h3>${esc(l.name)}</h3>
-        <p>${esc(l.rank)} · requires ${l.xp} XP</p>
-        ${bar}
-      </div>
-      <div>
-        <div class="reward">${l.coins ? icon('coin') + '+' + l.coins : '—'}</div>
-        <div class="state">${state}</div>
-      </div>
+      <div class="ms-lv">${l.level}</div>
+      <div><h3>${esc(l.name)}</h3><p>${esc(l.rank)} · requires ${l.xp} XP</p>${bar}</div>
+      <div><div class="reward">${l.coins ? icon('coin') + '+' + l.coins : '—'}</div><div class="state">${state}</div></div>
     </div>`;
   }).join('');
   Core.hydrate();
+})();
 </script>
 </body>
 </html>
