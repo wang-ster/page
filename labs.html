@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Mini-Labs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>MINI-LAB ARCHIVE<small>// ALL TRAINING SIMULATIONS</small></h1>
+        <div class="summary" id="summary"></div>
+      </div>
+      <div class="toolbar">
+        <input class="search" id="q" placeholder="> search labs_" autocomplete="off">
+        <div class="filters" id="cats"></div>
+        <div class="filters" id="stat"></div>
+      </div>
+      <div class="page-body"><div class="grid" id="grid"></div></div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script src="data/config.js"></script>
+<script src="assets/core.js"></script>
+<script>
+  Core.init('LABS');
+  const { esc, icon } = Core;
+  const p = Core.profile();
+  const state = { q: '', cat: 'ALL', status: 'ALL' };
+  const cats = ['ALL', ...new Set(SOC.labs.map(l => l.category))];
+  const statuses = p.guest ? ['ALL'] : ['ALL', 'OPEN', 'CLEARED'];
+
+  function chips(id, list, key){
+    const el = document.getElementById(id);
+    el.innerHTML = list.length > 1 ? list.map(c =>
+      `<button class="fchip ${state[key] === c ? 'on' : ''}" data-v="${esc(c)}">${esc(c.toUpperCase())}</button>`).join('') : '';
+    el.querySelectorAll('button').forEach(b => b.onclick = () => { state[key] = b.dataset.v; render(); });
+  }
+
+  function render(){
+    chips('cats', cats, 'cat');
+    chips('stat', statuses, 'status');
+    const q = state.q.toLowerCase();
+    const list = SOC.labs.filter(l => {
+      const cleared = p.done.has(l.id);
+      return (state.cat === 'ALL' || l.category === state.cat)
+        && (state.status === 'ALL' || (state.status === 'CLEARED') === cleared)
+        && (!q || `${l.id} ${l.title} ${l.desc} ${l.category}`.toLowerCase().includes(q));
+    });
+
+    document.getElementById('summary').innerHTML = p.guest
+      ? `<b>${SOC.labs.length}</b> LABS ON FILE`
+      : `<b>${p.cleared}</b> / ${SOC.labs.length} CLEARED`;
+
+    document.getElementById('grid').innerHTML = list.map(l => {
+      const cleared = p.done.has(l.id), locked = !l.file;
+      const ic = SOC.categoryIcons[l.category] || 'terminal';
+      const threat = Math.max(1, Math.min(3, l.threat || 1));
+      const pips = '■'.repeat(threat) + `<i class="off">${'■'.repeat(3 - threat)}</i>`;
+      return `
+      <article class="lab frame sm ${cleared ? 'cleared' : ''} ${locked ? 'locked' : ''}">
+        <div class="lab-top"><span class="lab-code">${esc(l.id)}</span>
+          <span class="status">${locked ? 'CLASSIFIED' : cleared ? '✔ CLEARED' : 'OPEN'}</span></div>
+        <div class="lab-main">
+          <div class="card-icon sm">${icon(ic)}</div>
+          <div><h3>${esc(l.title)}</h3><p>${esc(l.desc)}</p></div>
+        </div>
+        <div class="lab-meta">
+          <span class="tag">${esc(l.category)}</span>
+          <span class="pips">THREAT <i>${pips}</i></span>
+          <span class="xp">+${Core.labXP(l)} XP</span>
+        </div>
+        ${locked
+          ? `<span class="btn disabled">${icon('lock')} LOCKED</span>`
+          : `<a class="btn ${cleared ? 'ghost' : ''}" href="${esc(l.file)}" target="_blank" rel="noopener">${cleared ? 'REPLAY' : 'LAUNCH'} ▶</a>`}
+      </article>`;
+    }).join('') || `<p class="note">No labs match that search.</p>`;
+    Core.hydrate();
+  }
+
+  document.getElementById('q').addEventListener('input', e => { state.q = e.target.value; render(); });
+  render();
+</script>
+</body>
+</html>

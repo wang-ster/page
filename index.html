@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Main Menu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage">
+    <div class="title">
+      <h1 id="siteTitle">SOC<br>COMMAND<span class="cursor">_</span></h1>
+      <div class="sub" id="siteSub">CYBER DEFENSE TRAINING CENTER</div>
+    </div>
+
+    <nav class="menu">
+      <a class="card frame" href="labs.html">
+        <div class="card-icon"><span class="px" data-icon="terminal"></span></div>
+        <div class="card-text"><h2>Mini-Labs</h2><p id="labsLine">Every lab, ready to relaunch</p></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div>
+        <div class="shine"></div>
+      </a>
+      <a class="card frame" href="milestones.html">
+        <div class="card-icon"><span class="px" data-icon="medal"></span></div>
+        <div class="card-text"><h2>Ranks</h2><p id="rankLine">Milestones &amp; rewards</p></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div>
+        <div class="shine"></div>
+      </a>
+      <a class="card frame" href="shop.html">
+        <div class="card-icon"><span class="px" data-icon="chest"></span></div>
+        <div class="card-text"><h2>Supply Shop</h2><p>Spend coins &amp; diamonds</p></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div>
+        <div class="shine"></div>
+      </a>
+      <button class="card frame" id="intelCard">
+        <div class="card-icon"><span class="px" data-icon="radar"></span></div>
+        <div class="card-text"><h2>Intel</h2><p id="intelLine">Briefings from command</p></div>
+        <div class="go"><span class="px" data-icon="arrow"></span></div>
+        <div class="shine"></div>
+      </button>
+    </nav>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script src="data/config.js"></script>
+<script src="assets/core.js"></script>
+<script>
+  Core.init('HOME');
+  const p = Core.profile();
+  const words = SOC.siteTitle.split(' ');
+  document.getElementById('siteTitle').innerHTML = words.map(Core.esc).join('<br>') + '<span class="cursor">_</span>';
+  document.getElementById('siteSub').textContent = SOC.subtitle;
+  document.getElementById('labsLine').textContent = `${SOC.labs.length} labs on file · ${p.cleared} cleared`;
+  document.getElementById('rankLine').textContent = p.next
+    ? `Next: LV.${p.level + 1} → +${p.next.coins} coins`
+    : 'All milestones claimed';
+  document.getElementById('intelLine').textContent = `${SOC.briefings.length} briefing${SOC.briefings.length === 1 ? '' : 's'} on file`;
+  document.getElementById('intelCard').onclick = Core.showBriefings;
+</script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Supply Shop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>SUPPLY SHOP<small>// REQUISITIONS DESK</small></h1>
+        <div class="filters" id="tabs"></div>
+      </div>
+      <div class="page-body">
+        <p class="note" id="shopNote"></p>
+        <div class="grid" id="grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script src="data/config.js"></script>
+<script src="assets/core.js"></script>
+<script>
+  Core.init('SHOP');
+  const { esc, icon } = Core;
+  const p = Core.profile();
+  let tab = 'ALL';
+  const cur = { coins: { icon: 'coin', label: 'COINS' }, diamonds: { icon: 'crystal', label: 'DIAMONDS' } };
+
+  document.getElementById('shopNote').innerHTML = p.guest
+    ? 'Select your operator (click the portrait) to requisition supplies.'
+    : `Requisitioning creates a <b>ticket</b>. Show it to your instructor to collect your reward.`;
+
+  function render(){
+    const tabs = document.getElementById('tabs');
+    tabs.innerHTML = ['ALL', 'COINS', 'DIAMONDS'].map(t =>
+      `<button class="fchip ${tab === t ? 'on' : ''}" data-t="${t}">${t}</button>`).join('');
+    tabs.querySelectorAll('button').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+
+    const list = SOC.shop.filter(it => tab === 'ALL' || cur[it.currency].label === tab);
+    document.getElementById('grid').innerHTML = list.map(it => {
+      const have = p[it.currency], ok = !p.guest && have >= it.cost;
+      return `
+      <article class="item frame sm ${it.currency === 'diamonds' ? 'diamond' : ''}">
+        <div class="item-main">
+          <div class="card-icon sm">${icon(it.icon)}</div>
+          <div><h3>${esc(it.name)}</h3><p>${esc(it.desc)}</p></div>
+        </div>
+        <div class="item-foot">
+          <div class="price">${icon(cur[it.currency].icon)}${it.cost}</div>
+          <button class="btn ${ok ? 'green' : ''}" data-buy="${esc(it.id)}" ${ok ? '' : 'disabled'}>
+            ${p.guest ? 'LOG IN' : ok ? 'REQUISITION' : `NEED ${it.cost - have} MORE`}</button>
+        </div>
+      </article>`;
+    }).join('');
+    document.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => buy(SOC.shop.find(i => i.id === b.dataset.buy)));
+    Core.hydrate();
+  }
+
+  // short, stable-looking code for the instructor to log
+  function code(str){
+    let h = 2166136261;
+    for (const ch of str){ h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+    return (h >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(0, 6);
+  }
+
+  function buy(it){
+    const c = cur[it.currency];
+    const m = Core.modal(`
+      <h3>CONFIRM REQUISITION</h3>
+      <div class="item-main" style="margin-bottom:12px">
+        <div class="card-icon sm">${icon(it.icon)}</div>
+        <div><h3 style="color:var(--text)">${esc(it.name)}</h3><p class="note" style="margin:0">${esc(it.desc)}</p></div>
+      </div>
+      <p class="note">Cost: <b>${it.cost} ${c.label.toLowerCase()}</b> · You have <b>${p[it.currency]}</b></p>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>CANCEL</button>
+        <button class="btn green" id="go">CONFIRM</button>
+      </div>`);
+    m.el.querySelector('#go').onclick = () => {
+      const when = new Date();
+      const id = `REQ-${code(p.callsign + '|' + it.id + '|' + when.getTime())}`;
+      m.close();
+      Core.modal(`
+        <h3>REQUISITION TICKET</h3>
+        <div class="ticket">
+          <div>Show this ticket to your instructor.</div>
+          <div class="code">${id}</div>
+          <div class="row"><span>OPERATOR</span><span>${esc(p.callsign)}</span></div>
+          <div class="row"><span>ITEM</span><span>${esc(it.name)}</span></div>
+          <div class="row"><span>COST</span><span>${it.cost} ${c.label}</span></div>
+          <div class="row"><span>ISSUED</span><span>${when.toLocaleString()}</span></div>
+        </div>
+        <p class="note" style="margin-top:12px">Your balance updates once your instructor processes this ticket.</p>
+        <div class="modal-actions"><button class="btn" data-close>DONE</button></div>`);
+    };
+  }
+
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,363 @@
+/* ============================================================
+   SOC COMMAND — shared engine
+   (pixel icons, profile math, HUD, nav, modals, splash art)
+   You normally don't need to edit this file — edit data/config.js.
+   ============================================================ */
+(function(){
+  const SOC = window.SOC;
+
+  /* ---------------- helpers ---------------- */
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon = n => `<span class="px" data-icon="${n}"></span>`;
+  const store = {
+    get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+    set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+  };
+
+  /* ---------------- pixel icons ----------------
+     Each character = one pixel. '.' = transparent.            */
+  const PAL = {
+    k:'#02060d', w:'#eef8ff', g:'#f6c945', G:'#b07a1f', b:'#3db8ff', B:'#1a5fa8',
+    c:'#9ff4ff', r:'#ff3b5c', R:'#8e1f30', p:'#f2dcc0', P:'#c49a7a',
+    s:'#c9d6e8', S:'#5e7090', n:'#6a4a2e', N:'#3c2818', e:'#39ff88', E:'#13804a',
+    z:'#06121f', v:'#b48cff', V:'#5a3a9a'
+  };
+  const ICONS = {
+    envelope:[".kkkkkkkkkkkkkk.",".kkwwwwwwwwwwkk.",".kwkwwwwwwwwkwk.",".kwwkwwwwwwkwwk.",".kwwwkwwwwkwwwk.",".kwwwwkrrkwwwwk.",".kwwwwwrrwwwwwk.",".kwwwwwwwwwwwwk.",".kwwwwwwwwwwwwk.",".kSSSSSSSSSSSSk.",".kkkkkkkkkkkkkk."],
+    arrow:["..kkkkkkkk..",".kccbbbbbbk.","kcbbwbbbbbbk","kbbbwwbbbbbk","kbbbwwwbbbbk","kbbbwwwwbbbk","kbbbwwwwbbbk","kbbbwwwbbbbk","kbbbwwbbbbbk","kBbbwbbbbbBk",".kBBBBBBBBk.","..kkkkkkkk.."],
+    gear:["....kkkk....",".kk.kssk.kk.",".kskksskksk.","..kssssssk..","kkksskkssSkk","ksssk..kSSSk","kssSk..kSSSk","kkkSSkkSSkkk","..kSSSSSSk..",".kSkkSSkkSk.",".kk.kSSk.kk.","....kkkk...."],
+    home:[".....kk.....","....kbbk....","...kbbbbk...","..kbbbbbbk..",".kbbbbbbbbk.","kkkkkkkkkkkk",".kssssssssk.",".kscceskksk.",".ksccesknsk.",".ksssskknsk.",".kkkkkkkkkk."],
+    terminal:["kkkkkkkkkkkkkk","kSSSSSSSSrgeSk","kkkkkkkkkkkkkk","kzzzzzzzzzzzzk","kzezzzzzzzzzzk","kzzezzzzzzzzzk","kzzzezzzzzzzzk","kzzezzzeeeezzk","kzezzzzzzzzzzk","kzzzzzzzzzzzzk","kkkkkkkkkkkkkk"],
+    shield:["kkkkkkkkkkkk","kccccbbbbbBk","kcwccbbbbbBk","kcccckkbbbBk","kccckwwkbbBk","kccckwwkbbBk",".kcccwwbbBk.",".kccckkbbBk.","..kccbbbBk..","...kcbbBk...","....kbBk....",".....kk....."],
+    radar:["...kkkkkk...",".kkEEEEEEkk.",".kEEEEEEEEk.","kEEEEeEEEwEk","kEEEEEeEEEEk","kEeEEEkeeeek","kEEEEEEEEEEk","kEEEEEEEEEEk",".kEEEEEEEEk.",".kkEEEEEEkk.","...kkkkkk..."],
+    medal:["kbbk..krrk",".kbbkkrrk.","..kbkkrk..","...kkkk...","..kggggk..",".kgwgggGk.","kgwggGggGk","kggGGGGgGk","kgggGgggGk",".kgggggGk.","..kGGGGk..","...kkkk..."],
+    chest:["..kkkkkkkkkk..",".knnnnnnnnnnk.","kgnnnnnnnnnngk","kgNNNNNNNNNNgk","kkkkkkggkkkkkk","kgnnnkggknnngk","kgnnnnkknnnngk","kgnnnnnnnnnngk","kgNNNNNNNNNNgk","kkkkkkkkkkkkkk"],
+    lock:["..kkkkkk..",".ksk..ksk.",".ksk..ksk.","kkkkkkkkkk","kgggkkgggk","kgggkkgggk","kggggkgggk","kGGGGGGGGk","kkkkkkkkkk"],
+    crystal:["...kkkk...","..kvwvvk..",".kvwvvvVk.","kvvvvvvVVk","kkkkkkkkkk",".kvvvvvVk.",".kvvvvvVk.","..kvvvVk..","..kvvvVk..","...kvVk...","....kk...."],
+    coin:["..kkkkkk..",".kwgggggk.","kwggkkggGk","kgggkgggGk","kgggkgggGk","kgggkgggGk","kgggkgggGk","kgggkkggGk",".kGGGGGGk.","..kkkkkk.."],
+    analyst:["...kkkkkk...","..knnnnnnk..",".knnnnnnnnk.","kSknppppnkSk","kSkpkppkpkSk","kSkppppppkSk","..kSppPPpk..","...kcpppk...","..kkkkkkkk..",".kBBBcBBBBk.","kBBBBcBBBBBk","kkkkkkkkkkkk"],
+    check:["........kk",".......kek","kk....kek.","kek..kek..",".kekkek...","..keek....","...kk....."],
+    chips:["kkkkkkkkkk","ksSsSsSsSk","kkkkkkkkkk",".krrrrrrk.",".krwwwwrk.",".krwggwrk.",".krwggwrk.",".krwwwwrk.",".krrrrrrk.","kkkkkkkkkk","ksSsSsSsSk","kkkkkkkkkk"],
+    candy:["kk..kkkkkk..kk","kbkkrrrrrrkkbk","kbbkrwrrrrkbbk","kbkkrrrrrRkkbk","kk..kkkkkk..kk"],
+    ticket:["kkkkkkkkkkkkkk","kgggggggkggggk","kgrrrrggkgggGk",".kgggggggggggk",".kgrrrggkgggGk","kggggggggggggk","kGGGGGGGkGGGGk","kkkkkkkkkkkkkk"],
+    music:["....kkkkkk","....kbbbbk","....kbkkkk","....kbk...","....kbk...","....kbk...",".kkkkbk...","kbbbbbk...","kbcbbbk...","kbbbbbk...",".kkkkk...."],
+    clock:["...kkkkkk...",".kkwwwwwwkk.",".kwwwwkwwwk.","kwwwwwkwwwwk","kwwwwwkwwwwk","kwwwwwkkkkwk","kwwwwwwwwwwk","kwwwwwwwwwwk",".kwwwwwwwwk.",".kkwwwwwwkk.","...kkkkkk..."],
+    star:[".....k.....","....kgk....","....kgk....","kkkkgwgkkkk",".kggwgggGk.","..kgggggk..","...kgggk...","..kggkggk..",".kgk...kgk.",".kk.....kk."]
+  };
+  function pixelSVG(rows){
+    const h = rows.length, w = Math.max(...rows.map(r => r.length));
+    let out = `<svg viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">`;
+    rows.forEach((row,y) => [...row].forEach((ch,x) => {
+      if (PAL[ch]) out += `<rect x="${x}" y="${y}" width="1" height="1" fill="${PAL[ch]}"/>`;
+    }));
+    return out + '</svg>';
+  }
+  function hydrate(root = document){
+    root.querySelectorAll('[data-icon]').forEach(el => {
+      if (el.dataset.done) return;
+      const rows = ICONS[el.dataset.icon];
+      if (rows){ el.innerHTML = pixelSVG(rows); el.dataset.done = 1; }
+    });
+  }
+
+  /* ---------------- operator & progress ---------------- */
+  let memOp = null;
+  function currentOperator(){
+    const id = store.get('soc.operator') ?? memOp;
+    return SOC.roster.find(o => o.callsign === id) || null;
+  }
+  function setOperator(id){ memOp = id; store.set('soc.operator', id || ''); }
+  const labXP = lab => lab.xp ?? SOC.defaultLabXP;
+
+  function profile(op = currentOperator()){
+    const L = SOC.levels;
+    const done = new Set(op ? (op.completed || []) : []);
+    const xp = SOC.labs.filter(l => done.has(l.id)).reduce((s,l) => s + labXP(l), 0) + (op?.bonusXP || 0);
+    let idx = 0; L.forEach((l,i) => { if (xp >= l.xp) idx = i; });
+    const cur = L[idx], next = L[idx+1] || null;
+    const earned = L.slice(1, idx+1).reduce((s,l) => s + (l.coins || 0), 0) + (op?.bonusCoins || 0);
+    const spent = op?.spent || {};
+    return {
+      guest: !op, op, callsign: op ? op.callsign : 'GUEST',
+      xp, idx, level: idx + 1, rank: cur.rank, cur, next,
+      pct: next ? (xp - cur.xp) / (next.xp - cur.xp) : 1,
+      coins: earned - (spent.coins || 0),
+      diamonds: (op?.diamonds || 0) - (spent.diamonds || 0),
+      done, cleared: SOC.labs.filter(l => done.has(l.id)).length
+    };
+  }
+
+  /* ---------------- UI pieces ---------------- */
+  function renderHUD(){
+    const el = document.getElementById('hud'); if (!el) return;
+    const p = profile(), total = SOC.labs.length, n = SOC.briefings.length;
+    el.innerHTML = `
+      <button class="avatar" id="whoBtn" title="Switch operator">${icon('analyst')}</button>
+      <div class="player">
+        <div class="player-name"><span class="lv">LV.${p.level}</span><span class="rank">${esc(p.rank)}</span><span class="callsign">// ${esc(p.callsign)}</span></div>
+        <div class="bar"><i style="width:${(p.pct*100).toFixed(1)}%"></i><b>XP</b><span>${p.next ? `${p.xp}/${p.next.xp}` : `${p.xp} MAX`}</span></div>
+        <div class="bar alt"><i style="width:${total ? p.cleared/total*100 : 0}%"></i><b>LABS</b><span>${p.cleared}/${total}</span></div>
+      </div>
+      <div class="currencies">
+        <div class="chip" title="Coins — earned from milestones">${icon('coin')}${p.coins.toLocaleString()}</div>
+        <div class="chip" title="Diamonds — awarded by your instructor">${icon('crystal')}${p.diamonds}</div>
+      </div>
+      <div class="hud-actions">
+        <button class="icon-btn" id="mailBtn" aria-label="Intel briefings">${icon('envelope')}${n ? `<span class="badge">${n}</span>` : ''}</button>
+        <button class="icon-btn" id="setBtn" aria-label="Settings">${icon('gear')}</button>
+      </div>`;
+    el.querySelector('#whoBtn').onclick = pickOperator;
+    el.querySelector('#mailBtn').onclick = showBriefings;
+    el.querySelector('#setBtn').onclick = showSettings;
+  }
+
+  function renderTicker(){
+    const el = document.getElementById('ticker'); if (!el) return;
+    el.innerHTML = `<span class="ticker-label">THREAT FEED</span>
+      <div class="ticker-track"><p>${SOC.ticker.map(t => '▲ ' + esc(t)).join(' &nbsp; ')} &nbsp; ▲</p></div>`;
+  }
+
+  const NAV = [
+    ['home','HOME','index.html'], ['terminal','LABS','labs.html'], ['medal','RANKS','milestones.html'],
+    ['chest','SHOP','shop.html'], ['envelope','INTEL','#intel'], ['gear','SETTINGS','#settings']
+  ];
+  function renderNav(active){
+    const el = document.getElementById('nav'); if (!el) return;
+    el.innerHTML = NAV.map(([ic,label,href]) =>
+      `<a class="nav-btn ${label === active ? 'active' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${
+        label === 'INTEL' && SOC.briefings.length ? `<span class="badge">${SOC.briefings.length}</span>` : ''}</a>`).join('');
+    el.querySelector('[href="#intel"]').onclick = e => { e.preventDefault(); showBriefings(); };
+    el.querySelector('[href="#settings"]').onclick = e => { e.preventDefault(); showSettings(); };
+  }
+
+  function modal(html){
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `<div class="modal frame" role="dialog"><button class="x" data-close aria-label="Close">✕</button>${html}</div>`;
+    document.body.appendChild(back);
+    hydrate(back);
+    const close = () => { back.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    back.addEventListener('click', e => { if (e.target === back || e.target.closest('[data-close]')) close(); });
+    return { el: back, close };
+  }
+
+  function pickOperator(){
+    const curId = currentOperator()?.callsign || '';
+    const rows = [{callsign:''}, ...SOC.roster].map(o => {
+      const p = profile(o.callsign ? o : null);
+      return `<button class="op-row ${o.callsign === curId ? 'on' : ''}" data-op="${esc(o.callsign)}">
+        <span class="px" data-icon="analyst" style="width:26px;height:28px"></span>
+        <b>${o.callsign ? esc(o.callsign) : 'GUEST'}</b>
+        <span>${o.callsign ? `LV.${p.level} ${esc(p.rank)}` : 'Browse only'}</span></button>`;
+    }).join('');
+    const m = modal(`<h3>SELECT OPERATOR</h3><p class="note">Choose your callsign to load your rank and wallet.</p><div class="modal-list">${rows}</div>`);
+    m.el.querySelectorAll('[data-op]').forEach(b => b.onclick = () => { setOperator(b.dataset.op); location.reload(); });
+  }
+
+  function showBriefings(){
+    const items = SOC.briefings.map(b =>
+      `<div class="brief"><small>${esc(b.date)}</small><h4>${esc(b.title)}</h4><p>${esc(b.body)}</p></div>`).join('');
+    modal(`<h3>INTEL BRIEFINGS</h3>${items || '<p class="note">No new briefings.</p>'}`);
+  }
+
+  function showSettings(){
+    const still = store.get('soc.still') === '1';
+    const m = modal(`<h3>SETTINGS</h3>
+      <div class="modal-list">
+        <button class="op-row" id="sOp"><span class="px" data-icon="analyst" style="width:26px;height:28px"></span><b>SWITCH OPERATOR</b><span>${esc(profile().callsign)}</span></button>
+        <button class="op-row" id="sMotion"><span class="px" data-icon="radar" style="width:26px;height:26px"></span><b>ANIMATIONS</b><span>${still ? 'OFF' : 'ON'}</span></button>
+      </div>`);
+    m.el.querySelector('#sOp').onclick = () => { m.close(); pickOperator(); };
+    m.el.querySelector('#sMotion').onclick = () => { store.set('soc.still', still ? '0' : '1'); location.reload(); };
+  }
+
+  let toastTimer;
+  function toast(title, msg = 'Coming soon!'){
+    let t = document.getElementById('toast');
+    if (!t){ t = document.createElement('div'); t.id = 'toast'; t.className = 'toast frame'; document.body.appendChild(t); }
+    t.innerHTML = `<h3>${esc(title)}</h3><p>${esc(msg)}</p>`;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1300);
+  }
+
+  /* ---------------- SPLASH: pixel SOC room ---------------- */
+  function splash(){
+    const cv = document.getElementById('splash'); if (!cv) return;
+    const W = 320, H = 180, ctx = cv.getContext('2d');
+    let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+    const b = bg.getContext('2d');
+    const px = (c,x,y,w=1,h=1) => c.fillRect(x|0, y|0, w, h);
+    const fill = (c,col,x,y,w,h) => { c.fillStyle = col; px(c,x,y,w,h); };
+
+    // back wall with dithered gradient
+    const wall = ['#02060d','#040b18','#061226','#081a34','#0a2040'];
+    const bayer = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+    for (let y = 0; y < 124; y++){
+      const t = (y/124)*(wall.length-1), i = Math.floor(t), f = t - i;
+      for (let x = 0; x < W; x++){
+        b.fillStyle = wall[Math.min(wall.length-1, f > bayer[(y%4)*4 + x%4]/16 ? i+1 : i)];
+        px(b,x,y);
+      }
+    }
+    // wall panel seams
+    b.fillStyle = '#0c2648';
+    for (let x = 0; x < W; x += 40) px(b, x, 8, 1, 116);
+    // ceiling strip + lights
+    fill(b,'#010409',0,0,W,8);
+    for (let x = 60; x < W-40; x += 50){ fill(b,'#9ff4ff',x,6,20,1); fill(b,'#3df0ff22',x-4,7,28,3); }
+
+    // floor
+    fill(b,'#030913',0,124,W,56);
+    b.fillStyle = '#0a1a30';
+    for (let i = -10; i <= 10; i++){ for (let y = 124; y < H; y += 2){ const x = 160 + i*16*((y-110)/30); px(b,x,y); } }
+    for (let y = 128; y < H; y += 8) px(b,0,y,W,1);
+    // wall glow reflected on floor
+    for (let y = 124; y < 140; y++){ b.fillStyle = `rgba(61,240,255,${0.10 - (y-124)*0.006})`; px(b,44,y,232,1); }
+
+    // main wall display
+    const D = { x:44, y:12, w:232, h:86 };
+    fill(b,'#1b2f4a',D.x-3,D.y-3,D.w+6,D.h+6);
+    fill(b,'#02060d',D.x-1,D.y-1,D.w+2,D.h+2);
+    fill(b,'#020e1c',D.x,D.y,D.w,D.h);
+    fill(b,'#3a0c18',D.x,D.y,D.w,6);                 // header bar
+    for (let x = D.x+8; x < D.x+70; x += 4) fill(b,'#ff8a9c',x,D.y+2,2,2);
+    b.fillStyle = '#06203a';
+    for (let x = D.x; x < D.x+D.w; x += 16) px(b,x,D.y+6,1,D.h-6);
+    for (let y = D.y+6; y < D.y+D.h; y += 12) px(b,D.x,y,D.w,1);
+
+    // world map (very rough), 4px cells
+    const MAP = [
+      "........................................................",
+      ".....######.......####......########################....",
+      "...##########....##.......###########################...",
+      "..###########.....#......##########################.....",
+      "....########.............#####.####################.....",
+      ".....######..............###########.##########.........",
+      "......####..............########.....#######..#.........",
+      ".......##...............#########.....###...............",
+      "........###..............########......#.......##.......",
+      ".........#####............######...............###......",
+      "..........######...........####.................#.......",
+      "...........#####...........###..............####........",
+      "............###.............##..............#######.....",
+      "............##.................................####.....",
+      "............#..................................#........"
+    ];
+    const MX = D.x + 4, MY = D.y + 12, land = [];
+    MAP.forEach((row,ry) => [...row].forEach((ch,rx) => {
+      if (ch === '#'){ fill(b,'#145a78',MX+rx*4+1,MY+ry*4+1,2,2); land.push([MX+rx*4+2, MY+ry*4+2]); }
+    }));
+
+    // side status panels
+    const side = (x) => { fill(b,'#1b2f4a',x-2,20,36,72); fill(b,'#020e1c',x,22,32,68); };
+    side(6); side(282);
+
+    // desks + monitors
+    fill(b,'#0d1a2c',0,126,W,8); fill(b,'#1f3a5a',0,126,W,1); fill(b,'#050b14',0,134,W,2);
+    const mons = [];
+    for (let i = 0; i < 6; i++){
+      const x = 16 + i*52, y = 106;
+      fill(b,'#1b2f4a',x-1,y-1,28,18); fill(b,'#020e1c',x,y,26,16);
+      fill(b,'#1b2f4a',x+11,y+17,4,9);
+      mons.push({ x, y, col: ['#39ff88','#3df0ff','#ffb347'][i%3], lines: [8,14,10,18] });
+    }
+    // analysts (seen from behind) with cyan rim light
+    for (let i = 0; i < 6; i++){
+      if (i === 2) continue; // one empty seat
+      const cx = 29 + i*52;
+      b.fillStyle = '#0a1422';                       // chair back
+      px(b,cx-12,150,24,30);
+      b.fillStyle = '#03070f';
+      for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) if (x*x+y*y <= 36) px(b,cx+x,138+y); // head
+      px(b,cx-11,146,22,34); px(b,cx-13,150,26,30); // shoulders
+      b.fillStyle = '#2a6a8a';                       // rim light
+      px(b,cx-4,132,8,1); px(b,cx-6,134,1,3); px(b,cx+5,134,1,3);
+      px(b,cx-11,146,22,1);
+      b.fillStyle = '#5e7090';                       // headset
+      px(b,cx-7,134,1,6); px(b,cx+6,134,1,6); px(b,cx-6,132,12,1);
+    }
+
+    // dynamic state
+    const attacks = Array.from({length:6}, () => newAttack(true));
+    function newAttack(stagger){
+      const a = land[(rnd()*land.length)|0], c = land[(rnd()*land.length)|0];
+      return { a, c, t: stagger ? -rnd() : 0, sp: 1/(24 + rnd()*24), ring: 0,
+               col: ['#ff3b5c','#ffb347','#ff3b5c','#b48cff'][(rnd()*4)|0] };
+    }
+    const bars = Array.from({length:6}, () => 10 + rnd()*40);
+    const logs = Array.from({length:16}, () => ({ len: 4 + rnd()*24, col: rnd() < .15 ? '#ff3b5c' : '#39ff88' }));
+    const still = store.get('soc.still') === '1';
+
+    let t = 0, last = 0;
+    function frame(now){
+      if (!still) requestAnimationFrame(frame);
+      if (now - last < 66 && !still) return;
+      last = now; t++;
+      ctx.drawImage(bg,0,0);
+
+      // header blink
+      if (t % 10 < 5) fill(ctx,'#ff3b5c',D.x+D.w-8,D.y+2,3,2);
+
+      // attacks
+      attacks.forEach((k,i) => {
+        if (k.ring){
+          const r = 7 - k.ring;
+          ctx.fillStyle = k.col;
+          px(ctx,k.c[0]-r,k.c[1]-r,r*2+1,1); px(ctx,k.c[0]-r,k.c[1]+r,r*2+1,1);
+          px(ctx,k.c[0]-r,k.c[1]-r,1,r*2+1); px(ctx,k.c[0]+r,k.c[1]-r,1,r*2+1);
+          if (--k.ring === 0) attacks[i] = newAttack(false);
+          return;
+        }
+        k.t += k.sp;
+        if (k.t < 0) return;
+        if (k.t >= 1){ k.ring = 6; return; }
+        const dx = k.c[0]-k.a[0], dy = k.c[1]-k.a[1], lift = Math.min(28, Math.hypot(dx,dy)*0.35);
+        for (let j = 0; j < 12; j++){
+          const tt = k.t - j*0.018; if (tt < 0) break;
+          const x = k.a[0] + dx*tt, y = k.a[1] + dy*tt - Math.sin(Math.PI*tt)*lift;
+          ctx.globalAlpha = 1 - j/12; ctx.fillStyle = j ? k.col : '#ffffff'; px(ctx,x,y);
+        }
+        ctx.globalAlpha = 1;
+        if (t % 6 < 3) fill(ctx,k.col,k.a[0]-1,k.a[1]-1,2,2);
+      });
+
+      // left panel: live bar graph
+      bars.forEach((v,i) => {
+        bars[i] = Math.max(4, Math.min(60, v + (rnd()-.5)*8));
+        const h = bars[i]|0, col = h > 46 ? '#ff3b5c' : h > 30 ? '#ffb347' : '#39ff88';
+        fill(ctx,col,9+i*5,88-h,3,h);
+      });
+      // right panel: scrolling log
+      if (t % 3 === 0){ logs.shift(); logs.push({ len: 4 + rnd()*24, col: rnd() < .15 ? '#ff3b5c' : '#39ff88' }); }
+      logs.forEach((l,i) => fill(ctx,l.col,285,25+i*4,l.len|0,1));
+
+      // desk monitors flicker
+      mons.forEach(m => {
+        if (t % 5 === 0) m.lines = m.lines.map(() => 4 + rnd()*18);
+        m.lines.forEach((w,j) => fill(ctx,m.col,m.x+3,m.y+3+j*3,w|0,1));
+        ctx.globalAlpha = .08; fill(ctx,m.col,m.x-4,m.y-4,34,24); ctx.globalAlpha = 1;
+      });
+
+      // red alert beacons
+      const pulse = (Math.sin(t*0.35)+1)/2;
+      [[16,9],[304,9]].forEach(([x,y]) => {
+        fill(ctx,'#ff3b5c',x-2,y,5,3);
+        ctx.fillStyle = `rgba(255,59,92,${0.08 + pulse*0.12})`;
+        ctx.beginPath(); ctx.moveTo(x-2,y+3); ctx.lineTo(x+3,y+3); ctx.lineTo(x+22,y+80); ctx.lineTo(x-22,y+80); ctx.fill();
+      });
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------------- page bootstrap ---------------- */
+  function init(active){
+    if (store.get('soc.still') === '1') document.documentElement.classList.add('still');
+    renderHUD(); renderTicker(); renderNav(active); splash(); hydrate();
+  }
+
+  window.Core = { init, profile, currentOperator, hydrate, icon, esc, modal, toast, labXP, showBriefings };
+})();
