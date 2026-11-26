@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Class Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame chat-page">
+      <div class="page-head">
+        <h1>CLASS CHAT<small id="sub">// SECURE CHANNEL</small></h1>
+        <div class="actions" id="mod" hidden>
+          <button class="btn sm" id="openBtn"></button>
+          <label class="lbl" style="margin:0">SLOW MODE</label>
+          <select class="inp tiny" id="slow" style="width:90px">
+            <option value="0">Off</option><option value="3">3 s</option><option value="10">10 s</option><option value="30">30 s</option><option value="60">60 s</option></select>
+          <button class="btn sm ghost" id="wordsBtn">BLOCKED WORDS</button>
+          <button class="btn sm ghost" id="mutedBtn">MUTED</button>
+          <button class="btn sm red" id="clearBtn">CLEAR CHAT</button>
+        </div>
+      </div>
+      <div class="chat-log" id="log"><p class="loading">CONNECTING</p></div>
+      <button class="btn sm chat-jump" id="jump" hidden>NEW MESSAGES ↓</button>
+      <div class="chat-banner" id="banner" hidden></div>
+      <form class="chat-input" id="form">
+        <textarea class="inp" id="msg" rows="2" maxlength="500" placeholder="Message the class…  (Enter to send · Shift+Enter for a new line)"></textarea>
+        <div class="chat-send"><span class="hint" id="count">0/500</span><button class="btn green" id="send" type="submit">SEND ▶</button></div>
+      </form>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script>
+(async () => {
+  const me = await Core.init('CHAT');
+  const { sb, esc, must, toast, confirmBox, modal } = Core;
+  const $ = s => document.getElementById(s);
+  const isCiso = me.role === 'ciso';
+  const PV = Core.preview;
+  let settings = { enabled: true, slow_seconds: 3, blocked: [] }, msgs = [], myMuted = false, lastSig = '';
+
+  const time = iso => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const day  = iso => new Date(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  const nearBottom = () => { const l = $('log'); return l.scrollHeight - l.scrollTop - l.clientHeight < 80; };
+
+  async function load(){
+    settings = must(await sb.from('chat_settings').select('*').eq('id', 1).maybeSingle()) || settings;
+    const rows = must(await sb.from('chat_messages').select('*').order('created_at', { ascending: false }).limit(150));
+    msgs = rows.reverse().filter(m => isCiso || !m.deleted);   // the database already hides deleted ones from students
+    if (!isCiso) myMuted = !!(must(await sb.from('profiles').select('chat_muted').eq('id', me.id).maybeSingle()) || {}).chat_muted;
+    render();
+  }
+
+  function render(){
+    // header + moderation controls
+    $('sub').textContent = `// ${settings.enabled ? 'OPEN' : 'CLOSED'}${settings.slow_seconds ? ` · SLOW MODE ${settings.slow_seconds}S` : ''}`;
+    if (isCiso){
+      $('mod').hidden = false;
+      $('openBtn').textContent = settings.enabled ? '🔓 OPEN · CLICK TO CLOSE' : '🔒 CLOSED · CLICK TO OPEN';
+      $('openBtn').className = 'btn sm ' + (settings.enabled ? 'green' : 'red');
+      $('slow').value = String(settings.slow_seconds);
+    }
+    // who can type
+    const blocked = PV ? 'Student View: sending is disabled while previewing.'
+      : !isCiso && myMuted ? 'You have been muted by your CISO.'
+      : !isCiso && !settings.enabled ? 'Chat is closed right now. You can still read messages.' : '';
+    $('banner').hidden = !blocked; $('banner').textContent = blocked;
+    $('msg').disabled = $('send').disabled = !!blocked;
+
+    // messages (only redraw when something changed)
+    const sig = JSON.stringify(msgs.map(m => [m.id, m.deleted, m.body]));
+    if (sig === lastSig) return;
+    const stick = nearBottom() || !lastSig, firstDraw = !lastSig;
+    lastSig = sig;
+    let lastDay = '', lastAuthor = '', lastAt = 0;
+    $('log').innerHTML = msgs.map(m => {
+      const d = day(m.created_at), mine = m.user_id === me.id, at = new Date(m.created_at).getTime();
+      const grouped = m.user_id === lastAuthor && at - lastAt < 5 * 60000 && d === lastDay;
+      const head = d !== lastDay ? `<div class="chat-day">${esc(d)}</div>` : '';
+      lastDay = d; lastAuthor = m.user_id; lastAt = at;
+      return `${head}<div class="msg ${mine ? 'mine' : ''} ${m.author_role === 'ciso' ? 'ciso' : ''} ${m.deleted ? 'deleted' : ''} ${grouped ? 'grouped' : ''}" data-id="${m.id}" data-user="${m.user_id}">
+        ${grouped ? '' : `<div class="msg-head"><b class="${isCiso && m.author_role !== 'ciso' ? 'who' : ''}" title="${isCiso && m.author_role !== 'ciso' ? 'Click to mute/unmute' : ''}">${esc(m.author)}</b>
+          ${m.author_role === 'ciso' ? '<span class="role-tag">CISO</span>' : ''}<span class="t">${time(m.created_at)}</span></div>`}
+        <div class="msg-body">${esc(m.body)}</div>
+        ${isCiso ? `<div class="msg-tools">${m.deleted ? '<span class="stamp denied">DELETED</span><button class="btn sm ghost" data-restore>RESTORE</button>' : '<button class="btn sm red" data-del>DELETE</button>'}</div>` : ''}
+      </div>`;
+    }).join('') || '<p class="note" style="text-align:center">No messages yet. Say hello!</p>';
+    if (stick) $('log').scrollTop = $('log').scrollHeight; else $('jump').hidden = false;
+    if (firstDraw) $('log').scrollTop = $('log').scrollHeight;
+    if (isCiso) wireMod();
+    Core.store.set('soc.chatSeen.' + me.id, msgs.length ? msgs[msgs.length - 1].created_at : new Date().toISOString());
+  }
+
+  /* ---------- sending ---------- */
+  $('msg').addEventListener('input', () => { $('count').textContent = `${$('msg').value.length}/500`; });
+  $('msg').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); $('form').requestSubmit(); } });
+  $('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const body = $('msg').value.trim(); if (!body || $('send').disabled) return;
+    $('send').disabled = true;
+    const { error } = await sb.rpc('chat_send', { p_body: body });
+    $('send').disabled = false;
+    if (error){ toast('NOT SENT', error.message.replace(/^.*?: /, '')); return; }
+    $('msg').value = ''; $('count').textContent = '0/500'; $('msg').focus();
+    await load(); $('log').scrollTop = $('log').scrollHeight;
+  });
+  $('jump').onclick = () => { $('log').scrollTop = $('log').scrollHeight; $('jump').hidden = true; };
+  $('log').addEventListener('scroll', () => { if (nearBottom()) $('jump').hidden = true; });
+
+  /* ---------- CISO moderation ---------- */
+  const saveSettings = async patch => { try { must(await sb.from('chat_settings').update(patch).eq('id', 1)); await load(); } catch(e){ toast('ERROR', e.message); } };
+  if (isCiso){
+    $('openBtn').onclick = () => saveSettings({ enabled: !settings.enabled });
+    $('slow').onchange = e => saveSettings({ slow_seconds: +e.target.value });
+    $('wordsBtn').onclick = () => {
+      const m = modal(`<h3>BLOCKED WORDS</h3><p class="note">Separate with commas. Matching words (and words starting with them) are replaced with ****.</p>
+        <textarea class="inp" id="bw">${esc((settings.blocked || []).join(', '))}</textarea>
+        <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button><button class="btn green" id="go">SAVE</button></div>`);
+      m.el.querySelector('#go').onclick = async () => {
+        const list = m.el.querySelector('#bw').value.split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+        await saveSettings({ blocked: list }); m.close(); toast('FILTER UPDATED');
+      };
+    };
+    $('mutedBtn').onclick = async () => {
+      const list = must(await sb.from('profiles').select('id,username,display_name,chat_muted').eq('role', 'analyst'));
+      Core.sortStudents(list);
+      const m = modal(`<h3>MUTE STUDENTS</h3><p class="note">Muted students can still read the chat but can't post.</p>
+        <div class="modal-list">${list.map(s => `<button class="op-row" data-u="${s.id}"><b>${esc(s.display_name || s.username)}</b>
+          <span class="stamp ${s.chat_muted ? 'denied' : 'fulfilled'}">${s.chat_muted ? 'MUTED' : 'CAN POST'}</span></button>`).join('') || '<p class="note">No students yet.</p>'}</div>`);
+      m.el.querySelectorAll('[data-u]').forEach(b => b.onclick = async () => {
+        const s = list.find(x => x.id === b.dataset.u);
+        try { must(await sb.from('profiles').update({ chat_muted: !s.chat_muted }).eq('id', s.id)); m.close(); $('mutedBtn').click();
+              toast(s.chat_muted ? 'UNMUTED' : 'MUTED', s.display_name || s.username); } catch(e){ toast('ERROR', e.message); }
+      });
+    };
+    $('clearBtn').onclick = async () => {
+      if (!await confirmBox('CLEAR CHAT', 'Hide every message from students? You can still see (and restore) them.', 'CLEAR', true)) return;
+      try { must(await sb.from('chat_messages').update({ deleted: true }).eq('deleted', false)); await load(); toast('CHAT CLEARED'); }
+      catch(e){ toast('ERROR', e.message); }
+    };
+  }
+  function wireMod(){
+    document.querySelectorAll('.msg [data-del], .msg [data-restore]').forEach(b => b.onclick = async () => {
+      const id = b.closest('.msg').dataset.id;
+      try { must(await sb.from('chat_messages').update({ deleted: b.hasAttribute('data-del') }).eq('id', id)); await load(); }
+      catch(e){ toast('ERROR', e.message); }
+    });
+    document.querySelectorAll('.msg .who').forEach(n => n.onclick = async () => {
+      const uid = n.closest('.msg').dataset.user;
+      const p = must(await sb.from('profiles').select('chat_muted,display_name,username').eq('id', uid).maybeSingle());
+      if (!p) return;
+      if (!await confirmBox(p.chat_muted ? 'UNMUTE STUDENT' : 'MUTE STUDENT', `${p.chat_muted ? 'Let' : 'Stop'} ${p.display_name || p.username} ${p.chat_muted ? 'post again' : 'from posting'}?`, p.chat_muted ? 'UNMUTE' : 'MUTE', !p.chat_muted)) return;
+      try { must(await sb.from('profiles').update({ chat_muted: !p.chat_muted }).eq('id', uid)); toast(p.chat_muted ? 'UNMUTED' : 'MUTED', p.display_name || p.username); }
+      catch(e){ toast('ERROR', e.message); }
+    });
+  }
+
+  try { await load(); }
+  catch(e){
+    $('log').innerHTML = `<p class="err">${esc(e.message)}</p><p class="note">If this mentions a missing table, run <b>supabase/update-chat.sql</b> in the Supabase SQL Editor.</p>`;
+    return;
+  }
+  // new messages every 3 seconds while the tab is visible
+  setInterval(() => { if (!document.hidden) load().catch(() => {}); }, 3000);
+})();
+</script>
+</body>
+</html>

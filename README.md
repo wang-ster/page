@@ -23,7 +23,8 @@ In **SQL Editor → New query**, run each of these files in order (paste all of 
 2. `supabase/update-character-grades.sql`: one-time lab submission with CISO unlock, plus the Character Chart.
 3. `supabase/update-lab-builder.sql`: the Lab Builder, screenshot uploads and live progress.
 4. `supabase/update-class-order.sql`: lets you set the order students are listed in.
-5. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
+5. `supabase/update-chat.sql`: the class chat.
+6. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
    Then run this as its own query to fetch the first batch now: `select public.intel_refresh();`
 
 ### 3. Connect the website
@@ -73,6 +74,18 @@ The anon key is designed to be public. The database rules decide what each perso
 - **Gradebook → View work** opens the same view for that submission.
 
 Students can paste a screenshot (**Ctrl+V**), drag it in, or choose a file. Screenshots are private: only that student and you can see them.
+
+## Class Chat
+Everyone in the class can talk on the **Chat** page (bottom bar). A red number shows unread messages.
+- **Students** post messages up to 500 characters. They can't edit or delete them, so there's accountability.
+- **You (CISO)** see moderation controls at the top of the page:
+  - **Open/Close** the chat. When it's closed, students can read but not post.
+  - Set **Slow mode** (seconds between each student's messages).
+  - Edit the **Blocked words** list. Those words are replaced with ****.
+  - **Mute** a student, either from the Muted button or by clicking their name.
+  - **Clear chat** at the end of the day.
+- Hover any message to **Delete** it. Deleted messages vanish for students; you can still see and **Restore** them.
+- Your messages are outlined in amber with a CISO tag.
 
 ## Student View (CISO)
 Click **👁 View as student** in the Console (or **gear → View as student**). The site switches to exactly what a brand-new student sees:

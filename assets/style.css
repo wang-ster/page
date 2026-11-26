@@ -625,3 +625,28 @@ html.previewing .app, html.previewing .player-shell{padding-top:52px}
 .order-list li .nm{flex:1}
 .order-list li .grip{color:var(--muted); letter-spacing:-3px}
 .order-list li.dragging{opacity:.4} .order-list li.over{box-shadow:inset 0 0 0 2px var(--green)}
+
+/* class chat */
+.chat-page{display:flex; flex-direction:column; position:relative}
+.chat-log{flex:1; min-height:200px; overflow:auto; padding:6px 10px 10px; background:#04101ecc; border:2px solid var(--ink); box-shadow:inset 0 0 0 2px #12324a;
+  display:flex; flex-direction:column; gap:2px; font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif}
+.chat-day{align-self:center; font-family:var(--font-head); font-size:7px; color:var(--muted); margin:12px 0 6px; padding:4px 8px; background:#071a2c; border:1px solid #1d4a66}
+.msg{max-width:72%; align-self:flex-start; padding:7px 11px; margin-top:8px; background:#0d2440; border:2px solid #1d4a66; position:relative}
+.msg.grouped{margin-top:2px}
+.msg.mine{align-self:flex-end; background:#0e3a26; border-color:var(--green-dk)}
+.msg.ciso{border-color:var(--amber); box-shadow:inset 3px 0 0 var(--amber)}
+.msg.deleted{opacity:.45} .msg.deleted .msg-body{text-decoration:line-through}
+.msg-head{display:flex; gap:8px; align-items:baseline; margin-bottom:2px}
+.msg-head b{font-size:14px; color:var(--accent); font-weight:700}
+.msg.mine .msg-head b{color:var(--green)}
+.msg-head b.who{cursor:pointer; text-decoration:underline dotted}
+.msg-head .t{font-size:12px; color:var(--muted)}
+.msg-body{font-size:16px; line-height:1.45; color:#e6f1fb; white-space:pre-wrap; word-break:break-word}
+.msg-tools{display:none; gap:6px; margin-top:6px}
+.msg:hover .msg-tools, .msg.deleted .msg-tools{display:flex}
+.chat-input{display:flex; gap:10px; margin-top:10px; align-items:stretch}
+.chat-input textarea{flex:1; resize:none; font-family:"Segoe UI",system-ui,sans-serif; font-size:16px; min-height:52px}
+.chat-send{display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end; gap:4px}
+.chat-banner{margin-top:10px; padding:8px 12px; background:#2a1e08; border:2px solid var(--amber); color:var(--amber); font-size:19px}
+.chat-jump{position:absolute; left:50%; transform:translateX(-50%); bottom:96px; z-index:3}
+@media (max-width:760px){ .msg{max-width:92%} .chat-log{max-height:60vh} }

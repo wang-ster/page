@@ -42,6 +42,7 @@
     ticket:["kkkkkkkkkkkkkk","kgggggggkggggk","kgrrrrggkgggGk",".kgggggggggggk",".kgrrrggkgggGk","kggggggggggggk","kGGGGGGGkGGGGk","kkkkkkkkkkkkkk"],
     music:["....kkkkkk","....kbbbbk","....kbkkkk","....kbk...","....kbk...","....kbk...",".kkkkbk...","kbbbbbk...","kbcbbbk...","kbbbbbk...",".kkkkk...."],
     clock:["...kkkkkk...",".kkwwwwwwkk.",".kwwwwkwwwk.","kwwwwwkwwwwk","kwwwwwkwwwwk","kwwwwwkkkkwk","kwwwwwwwwwwk","kwwwwwwwwwwk",".kwwwwwwwwk.",".kkwwwwwwkk.","...kkkkkk..."],
+    chat:[".kkkkkkkkkkkk.","kcccccccccccck","kcSSSSSSSSSSck","kcccccccccccck","kcSSSSSSScccck","kcccccccccccck",".kkkcckkkkkkk.","...kck........","...kk........."],
     star:[".....k.....","....kgk....","....kgk....","kkkkgwgkkkk",".kggwgggGk.","..kgggggk..","...kgggk...","..kggkggk..",".kgk...kgk.",".kk.....kk."]
   };
   function pixelSVG(rows){
@@ -163,13 +164,13 @@
     const el = document.getElementById('nav'); if (!el) return;
     const items = [
       ['home','HOME','index.html'], ['terminal','LABS','labs.html'], ['medal','RANKS','milestones.html'],
-      ['chest','SHOP','shop.html'], ['radar','INTEL','intel.html'], ['envelope','ANNOUNCEMENTS','announcements.html']
+      ['chest','SHOP','shop.html'], ['radar','INTEL','intel.html'], ['envelope','ANNOUNCEMENTS','announcements.html'], ['chat','CHAT','chat.html']
     ];
     if (ME && ME.role === 'ciso') items.push(['star','CHARACTER','character.html'], ['shield','CONSOLE','console.html']);
     el.style.gridTemplateColumns = `repeat(${items.length},1fr)`;
     el.innerHTML = items.map(([ic,label,href]) =>
       `<a class="nav-btn ${label === active ? 'active' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${
-        label === 'ANNOUNCEMENTS' ? '<span class="badge" data-ann hidden></span>' : ''}</a>`).join('');
+        label === 'ANNOUNCEMENTS' ? '<span class="badge" data-ann hidden></span>' : label === 'CHAT' ? '<span class="badge" data-chat hidden></span>' : ''}</a>`).join('');
     hydrate(el);
   }
 
@@ -205,6 +206,14 @@
       const seen = store.get('soc.annSeen.' + ME.id) || '';
       const n = annCache.filter(a => a.created_at > seen).length;
       document.querySelectorAll('[data-ann]').forEach(b => { b.hidden = !n; b.textContent = n; });
+    } catch(e){}
+  }
+  /* chat unread badge: messages since you last had the chat open */
+  async function chatBadge(){
+    try {
+      const seen = store.get('soc.chatSeen.' + ME.id) || new Date(0).toISOString();
+      const { count } = await sb.from('chat_messages').select('id', { count: 'exact', head: true }).gt('created_at', seen).neq('user_id', ME.id);
+      document.querySelectorAll('[data-chat]').forEach(b => { b.hidden = !count; b.textContent = count > 99 ? '99+' : count; });
     } catch(e){}
   }
   function showAnnouncements(){ location.href = 'announcements.html'; }
@@ -665,7 +674,7 @@
     if (opts.ciso && PREVIEW){ ssSet('soc.preview', null); await loadMe(); }   // opening a CISO page ends Student View
     if (opts.ciso && ME.role !== 'ciso'){ location.replace('index.html'); return never(); }
     previewBar();
-    renderHUD(); renderNav(active); annBadge(); startIdleWatch();
+    renderHUD(); renderNav(active); annBadge(); if (active !== 'CHAT') chatBadge(); startIdleWatch();
     // show this user's own background (the login screen used whoever logged in last on this device)
     const mine = store.get(bgKey('bg')) || '{}', myImg = store.get(bgKey('bgimg')) || '';
     if (mine !== (store.get('soc.bg.last') || '{}') || myImg !== (store.get('soc.bgimg.last') || '')){
