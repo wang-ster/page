@@ -22,7 +22,8 @@ In **SQL Editor → New query**, run each of these files in order (paste all of 
 1. `supabase/user-admin.sql`: lets the Console create students, reset passwords, change roles and delete accounts.
 2. `supabase/update-character-grades.sql`: one-time lab submission with CISO unlock, plus the Character Chart.
 3. `supabase/update-lab-builder.sql`: the Lab Builder, screenshot uploads and live progress.
-4. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
+4. `supabase/update-class-order.sql`: lets you set the order students are listed in.
+5. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
    Then run this as its own query to fetch the first batch now: `select public.intel_refresh();`
 
 ### 3. Connect the website
