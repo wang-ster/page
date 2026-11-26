@@ -47,7 +47,8 @@
   const labs = must(await sb.from('labs')
     .select('id,code,title,category,threat,xp,description,published,created_at')
     .order('created_at', { ascending: true }));
-  const mine = must(await sb.from('completions')
+  if (Core.preview) for (let i = labs.length - 1; i >= 0; i--) if (!labs[i].published) labs.splice(i, 1);   // students never see drafts
+  const mine = Core.preview ? [] : must(await sb.from('completions')
     .select('lab_id,score,max_score,grade,feedback,graded_at,submitted_at,unlocked').eq('user_id', me.id));
   const done = Object.fromEntries(mine.map(c => [c.lab_id, c]));
 

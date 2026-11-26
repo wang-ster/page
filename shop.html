@@ -83,6 +83,7 @@
   }
 
   async function buy(it){
+    if (Core.preview) return Core.toast('STUDENT VIEW', 'Purchases are disabled while previewing.');
     const c = cur[it.currency];
     const ok = await Core.confirmBox('CONFIRM REQUISITION', `${it.name} for ${it.cost} ${c.label.toLowerCase()}. You have ${Core.me[it.currency]}.`, 'CONFIRM');
     if (!ok) return;

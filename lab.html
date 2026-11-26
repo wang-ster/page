@@ -42,15 +42,16 @@
   const $ = s => document.getElementById(s);
 
   let { data: lab } = await sb.from('labs').select('*').eq('id', id).maybeSingle();
-  if (!lab){ $('title').textContent = 'LAB NOT FOUND'; return; }
+  const PV = Core.preview;                                   // CISO Student View: nothing is saved
+  if (!lab || (PV && !lab.published)){ $('title').textContent = PV && lab ? 'DRAFT: STUDENTS CAN\'T SEE THIS LAB YET' : 'LAB NOT FOUND'; return; }
   const built = lab.kind === 'built';
   document.title = `${lab.code} · ${lab.title}`;
   $('code').textContent = lab.code + (lab.published ? '' : ' · DRAFT');
   $('title').textContent = lab.title;
 
-  const saved = (await sb.from('lab_state').select('state').eq('user_id', me.id).eq('lab_id', id).maybeSingle()).data;
+  const saved = PV ? null : (await sb.from('lab_state').select('state').eq('user_id', me.id).eq('lab_id', id).maybeSingle()).data;
   let labState = (saved && saved.state) || {};
-  let comp = (await sb.from('completions').select('*').eq('user_id', me.id).eq('lab_id', id).maybeSingle()).data;
+  let comp = PV ? null : (await sb.from('completions').select('*').eq('user_id', me.id).eq('lab_id', id).maybeSingle()).data;
   let progress = { score: null, max: null };
   const isLocked = () => !!(comp && !comp.unlocked);       // one submission unless the CISO unlocks it
 
@@ -62,13 +63,14 @@
     $('fb').innerHTML = graded ? `GRADE: <b>${esc(comp.grade ?? '—')}</b>${comp.feedback ? ' · ' + esc(comp.feedback) : ''}` : '';
   }
   paintStatus();
+  if (PV){ $('status').textContent = 'STUDENT VIEW'; $('fb').textContent = 'Preview: answers and uploads are not saved.'; }
 
   // ---- saving progress (both kinds) ----
   let saveT;
-  const saveNow = () => sb.from('lab_state').upsert({
+  const saveNow = () => PV ? Promise.resolve({}) : sb.from('lab_state').upsert({
     user_id: me.id, lab_id: id, state: labState, score: progress.score, max_score: progress.max, updated_at: new Date().toISOString()
   });
-  const saveSoon = () => { clearTimeout(saveT); saveT = setTimeout(async () => {
+  const saveSoon = () => { if (PV) return; clearTimeout(saveT); saveT = setTimeout(async () => {
     const { error } = await saveNow();
     $('fb').innerHTML = error ? `<span class="err">Not saved: ${esc(error.message)}</span>` : `Saved ${new Date().toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}`;
   }, 800); };
@@ -80,14 +82,15 @@
       mode: 'student', readOnly: isLocked(), state: labState,
       onChange: st => { labState = st; saveSoon(); },
       upload: async (file, blockId) => {
+        if (PV) return URL.createObjectURL(file);               // preview: show it locally, don't upload
         const ext = (file.name.split('.').pop() || file.type.split('/')[1] || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
         const path = `${me.id}/${lab.id}/${blockId}-${Date.now()}.${ext || 'png'}`;
         const { error } = await sb.storage.from('screenshots').upload(path, file, { contentType: file.type || 'image/png' });
         if (error) throw new Error(error.message);
         return path;
       },
-      remove: path => sb.storage.from('screenshots').remove([path]),
-      imgUrl: async path => (await sb.storage.from('screenshots').createSignedUrl(path, 3600)).data.signedUrl
+      remove: path => path.startsWith('blob:') ? null : sb.storage.from('screenshots').remove([path]),
+      imgUrl: async path => path.startsWith('blob:') ? path : (await sb.storage.from('screenshots').createSignedUrl(path, 3600)).data.signedUrl
     });
     draw();
     // the CISO can unlock questions mid-lab: check every 15 s and redraw if the lab changed
@@ -104,7 +107,7 @@
   } else {
     /* ---------- uploaded HTML lab ---------- */
     const frame = $('frame');
-    frame.srcdoc = LabKit.htmlDoc(lab.html, labState, { persist: true });
+    frame.srcdoc = LabKit.htmlDoc(lab.html, labState, { persist: !PV });
     window.addEventListener('message', async e => {
       if (e.source !== frame.contentWindow || !e.data || !e.data.soc) return;
       const m = e.data;
@@ -115,6 +118,7 @@
   }
 
   async function submit(answers, auto){
+    if (PV){ toast('STUDENT VIEW', 'Submitting is disabled while previewing.'); return; }
     if (isLocked()) return;
     if (!auto){
       let warn = '';

@@ -24,6 +24,7 @@
     <section class="page frame">
       <div class="page-head">
         <h1>CISO COMMAND CONSOLE<small>// FULL CLEARANCE</small></h1>
+        <button class="btn" id="pvBtn">👁 VIEW AS STUDENT</button>
       </div>
       <div class="tabbar" id="tabs"></div>
       <div class="page-body" id="body"><p class="loading">LOADING</p></div>
@@ -38,6 +39,7 @@
   const me = await Core.init('CONSOLE', { ciso: true });
   const { sb, esc, must, api, toast, modal, confirmBox } = Core;
   const body = document.getElementById('body');
+  document.getElementById('pvBtn').onclick = () => Core.setPreview(true);
   const ICONS = ['candy','chips','star','music','shield','clock','ticket','chest','coin','crystal','medal','lock','terminal'];
   const TABS = { operators: 'OPERATORS', labs: 'LABS', grades: 'GRADEBOOK', reqs: 'REQUISITIONS', shop: 'SHOP', ann: 'ANNOUNCEMENTS', ranks: 'RANKS' };
   const $ = (s, r = body) => r.querySelector(s);

@@ -78,10 +78,35 @@
   const must = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
   let ME = null;
+  /* ---------------- STUDENT VIEW (CISO preview) ----------------
+     Per browser tab. The CISO sees the site as a brand-new student: no CISO tools,
+     zero XP/coins, locked questions hidden. Pages check Core.preview to skip saving. */
+  const ssGet = k => { try { return sessionStorage.getItem(k); } catch(e){ return null; } };
+  const ssSet = (k, v) => { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch(e){} };
+  let REAL = null, PREVIEW = false, firstLevels = null;
+  function setPreview(on){ ssSet('soc.preview', on ? '1' : null); location.href = on ? 'index.html' : 'console.html'; }
+
   async function loadMe(){
     const { data, error } = await sb.rpc('wallet');
     if (error) throw error;
-    ME = data; return data;
+    REAL = data;
+    PREVIEW = data.role === 'ciso' && ssGet('soc.preview') === '1';
+    if (!PREVIEW){ ME = data; return data; }
+    if (!firstLevels) firstLevels = (await sb.from('levels').select('*').order('xp').limit(2)).data || [];
+    const l1 = firstLevels[0] || { level: 1, xp: 0, rank: 'Recruit' }, l2 = firstLevels[1];
+    ME = { ...data, role: 'analyst', display_name: 'Student Preview', xp: 0, level: l1.level, rank: l1.rank, cur_xp: l1.xp,
+           next_xp: l2 ? l2.xp : null, next_level: l2 ? l2.level : null, next_coins: l2 ? l2.coins : null,
+           coins: 0, diamonds: 0, cleared: 0 };
+    return ME;
+  }
+  function previewBar(){
+    if (!PREVIEW || document.getElementById('previewBar')) return;
+    document.documentElement.classList.add('previewing');
+    const b = document.createElement('div'); b.id = 'previewBar';
+    b.innerHTML = `<span>👁 STUDENT VIEW</span><em>You're seeing exactly what a new student sees. Nothing you do here is saved or submitted.</em>
+      <button class="btn sm" id="pvExit">EXIT STUDENT VIEW</button>`;
+    document.body.appendChild(b);
+    b.querySelector('#pvExit').onclick = () => setPreview(false);
   }
 
   // Every page except login calls this. No session → login page.
@@ -189,12 +214,14 @@
   }
   function showSettings(){
     const m = modal(`<h3>OPERATOR SETTINGS</h3>
-      <p class="note">Signed in as <b>${esc(ME.username)}</b> · ${ME.role === 'ciso' ? 'Chief Information Security Officer' : 'Analyst'}</p>
+      <p class="note">Signed in as <b>${esc(ME.username)}</b> · ${REAL && REAL.role === 'ciso' ? 'Chief Information Security Officer' + (PREVIEW ? ' (in Student View)' : '') : 'Analyst'}</p>
       <div class="modal-list">
         <button class="op-row" id="sPw">${icon('lock')}<b>CHANGE PASSWORD</b></button>
         <button class="op-row" id="sBg">${icon('star')}<b>BACKGROUND</b><span>${BG_SCENES[bgGet().scene] || ''}</span></button>
+        ${REAL && REAL.role === 'ciso' ? `<button class="op-row" id="sPv">${icon('analyst')}<b>${PREVIEW ? 'EXIT STUDENT VIEW' : 'VIEW AS STUDENT'}</b><span>${PREVIEW ? 'ON' : ''}</span></button>` : ''}
         <button class="op-row" id="sOut">${icon('arrow')}<b>LOG OUT</b></button>
       </div>`);
+    const pv = m.el.querySelector('#sPv'); if (pv) pv.onclick = () => setPreview(!PREVIEW);
     m.el.querySelector('#sBg').onclick = () => { m.close(); showBackground(); };
     m.el.querySelector('#sOut').onclick = async () => { await sb.auth.signOut(); location.replace('login.html'); };
     m.el.querySelector('#sPw').onclick = () => {
@@ -624,19 +651,21 @@
   async function init(active, opts = {}){
     if (store.get('soc.still') === '1') document.documentElement.classList.add('still');
     renderTicker(); splash(); hydrate();
-    const me = await guard();
-    if (opts.ciso && me.role !== 'ciso'){ location.replace('index.html'); return never(); }
+    await guard();
+    if (opts.ciso && PREVIEW){ ssSet('soc.preview', null); await loadMe(); }   // opening a CISO page ends Student View
+    if (opts.ciso && ME.role !== 'ciso'){ location.replace('index.html'); return never(); }
+    previewBar();
     renderHUD(); renderNav(active); annBadge(); startIdleWatch();
     // show this user's own background (the login screen used whoever logged in last on this device)
     const mine = store.get(bgKey('bg')) || '{}', myImg = store.get(bgKey('bgimg')) || '';
     if (mine !== (store.get('soc.bg.last') || '{}') || myImg !== (store.get('soc.bgimg.last') || '')){
       store.set('soc.bg.last', mine); store.set('soc.bgimg.last', myImg); splash();
     }
-    return me;
+    return ME;
   }
 
   window.Core = {
-    init, sb, api, must, configured, refreshMe, get me(){ return ME; },
+    init, sb, api, must, configured, refreshMe, get me(){ return ME; }, get preview(){ return PREVIEW; }, get realMe(){ return REAL; }, setPreview,
     hydrate, splash, showBackground, markAnnouncementsSeen, icon, esc, modal, confirmBox, toast, store, showAnnouncements, cfg: CFG
   };
 })();

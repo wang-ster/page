@@ -72,6 +72,14 @@ The anon key is designed to be public. The database rules decide what each perso
 
 Students can paste a screenshot (**Ctrl+V**), drag it in, or choose a file. Screenshots are private: only that student and you can see them.
 
+## Student View (CISO)
+Click **👁 View as student** in the Console (or **gear → View as student**). The site switches to exactly what a brand-new student sees:
+- no Console or Character Chart
+- zero XP and coins
+- draft labs hidden and locked questions locked
+
+You can click through labs, type answers and try uploads, but nothing is saved, submitted or bought. A striped bar at the top reminds you; click **Exit Student View** to return. It only affects that browser tab, and opening any CISO page ends it automatically.
+
 ## Backgrounds (everyone)
 Click the **gear → Background** to choose a scene (SOC Room, Calm Grid, Night Sky, Minimal), a color, how much to dim it, and whether it animates. **My image** turns any uploaded picture into pixel art (Chunky / Medium / Fine). Settings are saved for each user on that device, so students on shared computers each keep their own.
 
