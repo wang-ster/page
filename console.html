@@ -77,9 +77,15 @@
           <div><label class="lbl">ROLE</label><select class="inp" id="nr"><option value="analyst">Analyst (student)</option><option value="ciso">CISO</option></select></div>
           <div><button class="btn green" id="create">CREATE</button></div>
         </div>
-        <details><summary>BULK CREATE (ONE PER LINE: username, Display Name, password)</summary>
-          <textarea class="inp" id="bulk" placeholder="jsmith, Jordan Smith, cyber123&#10;alee, Alex Lee, cyber456"></textarea>
-          <button class="btn sm" id="bulkGo" style="margin-top:8px">CREATE ALL</button> <span id="bulkMsg" class="note"></span>
+        <details open><summary>BULK CREATE: ONE STUDENT PER LINE (First Last)</summary>
+          <p class="hint" style="margin:6px 0">Username = first name (lowercase) · Display name = First Last · Everyone gets the starting password below and must choose their own on first login.
+            Same first name twice? The second gets a last-name initial (e.g. <b>jordans</b>). "Last, First" also works.</p>
+          <textarea class="inp" id="bulk" placeholder="Jordan Smith&#10;Alex Lee&#10;Maya Brown"></textarea>
+          <div class="form-grid" style="margin-top:6px">
+            <div><label class="lbl">STARTING PASSWORD (REMEMBERED ON THIS COMPUTER)</label><input class="inp" id="bulkPw" autocomplete="off" placeholder="type it once"></div>
+            <div><button class="btn green" id="bulkGo">CREATE ALL</button></div>
+          </div>
+          <span id="bulkMsg" class="note"></span>
         </details>
       </div>
       <div class="toolbar"><button class="btn" id="orderBtn">⇅ SET CLASS ORDER</button>
@@ -105,20 +111,62 @@
 
     $('#orderBtn').onclick = () => classOrder(analysts);
     $('#create').onclick = () => run(async () => {
-      must(await sb.rpc('ciso_create_user', { p_username: $('#nu').value, p_password: $('#np').value, p_display: $('#nd').value, p_role: $('#nr').value }));
+      const id = must(await sb.rpc('ciso_create_user', { p_username: $('#nu').value, p_password: $('#np').value, p_display: $('#nd').value, p_role: $('#nr').value }));
+      try { await sb.from('profiles').update({ must_change_pw: true }).eq('id', id); } catch(e){}
       show();
     }, 'OPERATOR CREATED');
+    // the starting password lives only in this browser, never in the public site code
+    $('#bulkPw').value = Core.store.get('soc.startPw') || '';
     $('#bulkGo').onclick = async () => {
-      const lines = $('#bulk').value.split('\n').map(l => l.split(',').map(x => x.trim())).filter(l => l[0]);
-      const msg = $('#bulkMsg'); let ok = 0; const bad = [];
-      for (const [u, d, p] of lines){
-        msg.textContent = `Creating ${u}…`;
-        try { must(await sb.rpc('ciso_create_user', { p_username: u, p_password: p || '', p_display: d || u, p_role: 'analyst' })); ok++; }
-        catch(e){ bad.push(`${u}: ${e.message}`); }
+      const pw = $('#bulkPw').value.trim();
+      if (pw.length < 6) return toast('STARTING PASSWORD', 'Type the starting password (at least 6 characters).');
+      Core.store.set('soc.startPw', pw);
+      // "First Last" or "Last, First" → { first, last }
+      const people = $('#bulk').value.split('\n').map(l => l.replace(/^\s*\d+[.)\t ]+/, '').trim()).filter(Boolean).map(l => {
+        if (l.includes(',')){ const [last, first] = l.split(',').map(x => x.trim()); return { first: first.split(/\s+/)[0], last, display: `${first} ${last}`.trim() }; }
+        const parts = l.split(/\s+/); return { first: parts[0], last: parts.slice(1).join(' '), display: l.replace(/\s+/g, ' ') };
+      });
+      if (!people.length) return toast('NOTHING TO CREATE', 'Add one student per line.');
+      const clean = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9._-]/g, '');
+      const taken = new Set(roster.map(r => r.username));
+      const pick = p => {
+        const f = clean(p.first), l = clean(p.last);
+        for (const u of [f, f + l.slice(0, 1), f + l.slice(0, 2), f + l]) if (u.length >= 2 && !taken.has(u)) return u;
+        for (let n = 2; ; n++) if (!taken.has(f + l + n)) return f + l + n;
+      };
+      const msg = $('#bulkMsg'), results = [], newIds = [];
+      for (const p of people){
+        const u = pick(p); taken.add(u);
+        msg.textContent = `Creating ${p.display}…`;
+        try {
+          const id = must(await sb.rpc('ciso_create_user', { p_username: u, p_password: pw, p_display: p.display, p_role: 'analyst' }));
+          newIds.push(id); results.push({ ...p, u, ok: true });
+        } catch(e){ results.push({ ...p, u, ok: false, err: e.message }); }
       }
-      toast('BULK CREATE', `${ok} created${bad.length ? `, ${bad.length} failed` : ''}`);
+      msg.textContent = '';
+      // new students must pick their own password on first login; append them to the class order
+      if (newIds.length){
+        try { await sb.from('profiles').update({ must_change_pw: true }).in('id', newIds); } catch(e){}
+        try { await sb.rpc('ciso_set_order', { p_ids: [...analysts.map(a => a.id), ...newIds] }); } catch(e){}
+      }
       await show();
-      if (bad.length) alertBox('SOME ACCOUNTS FAILED', bad.join('\n'));
+      const okList = results.filter(r => r.ok);
+      const m = modal(`<h3>${okList.length} OF ${results.length} ACCOUNTS CREATED</h3>
+        <p class="note">Hand these out. Each student picks a new password the first time they log in.</p>
+        <div class="tbl-wrap"><table class="data"><tr><th>STUDENT</th><th>USERNAME</th><th>PASSWORD</th><th>STATUS</th></tr>
+        ${results.map(r => `<tr><td>${esc(r.display)}</td><td><b>${esc(r.u)}</b></td><td>${r.ok ? esc(pw) : ''}</td>
+          <td>${r.ok ? '<span class="stamp fulfilled">CREATED</span>' : `<span class="stamp denied">FAILED</span> <span class="muted">${esc(r.err)}</span>`}</td></tr>`).join('')}</table></div>
+        <div class="modal-actions"><button class="btn ghost" id="cp">COPY LIST</button><button class="btn" id="pr">PRINT</button><button class="btn green" data-close>DONE</button></div>`, { wide: true });
+      const text = okList.map(r => `${r.display}\t${r.u}\t${pw}`).join('\n');
+      m.el.querySelector('#cp').onclick = async () => { try { await navigator.clipboard.writeText('Name\tUsername\tPassword\n' + text); toast('COPIED'); } catch(e){ toast('COPY FAILED', 'Select the table and copy instead.'); } };
+      m.el.querySelector('#pr').onclick = () => {
+        const w = window.open('', '_blank');
+        w.document.write(`<title>Logins</title><style>body{font:16px Arial;margin:24px}td,th{border:1px solid #999;padding:8px 12px;text-align:left}table{border-collapse:collapse}</style>
+          <h2>SOC Command logins</h2><p>Go to the site, log in, then choose your own password.</p>
+          <table><tr><th>Student</th><th>Username</th><th>Starting password</th></tr>${okList.map(r => `<tr><td>${esc(r.display)}</td><td><b>${esc(r.u)}</b></td><td>${esc(pw)}</td></tr>`).join('')}</table>`);
+        w.document.close(); w.focus(); w.print();
+      };
+      if (okList.length) $('#bulk').value = results.filter(r => !r.ok).map(r => r.display).join('\n');
     };
     $$('tr[data-id]').forEach(tr => {
       const id = tr.dataset.id, r = roster.find(x => x.id === id);
@@ -138,7 +186,9 @@
           <p class="err" id="pe"></p>
           <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button><button class="btn green" id="go">RESET</button></div>`);
         $('#go', m.el).onclick = async () => {
-          try { must(await sb.rpc('ciso_reset_password', { p_user: id, p_password: $('#pw', m.el).value })); m.close(); toast('PASSWORD RESET', `Give ${r.username} the new password.`); }
+          try { must(await sb.rpc('ciso_reset_password', { p_user: id, p_password: $('#pw', m.el).value }));
+            try { await sb.from('profiles').update({ must_change_pw: true }).eq('id', id); } catch(e){}
+            m.close(); toast('PASSWORD RESET', `Give ${r.username} the new password.`); }
           catch(e){ $('#pe', m.el).textContent = e.message; }
         };
       };

@@ -246,6 +246,7 @@
         if (a !== b) return e.textContent = "Passwords don't match.";
         const { error } = await sb.auth.updateUser({ password: a });
         if (error) return e.textContent = error.message;
+        try { await sb.rpc('password_changed'); } catch(err){}
         p.close(); toast('PASSWORD UPDATED', 'Use it next time you log in.');
       };
     };
@@ -665,6 +666,44 @@
       : (a, b) => (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9) || byName(a, b));
   }
 
+  /* first login (or after a reset): the student must choose a new password before continuing */
+  async function forcePasswordChange(){
+    if (PREVIEW) return;
+    let must;
+    try { must = (await sb.from('profiles').select('must_change_pw').eq('id', REAL.id).maybeSingle()).data?.must_change_pw; } catch(e){ return; }
+    if (!must) return;
+    await new Promise(done => {
+      const back = document.createElement('div');
+      back.className = 'modal-back';
+      back.innerHTML = `<div class="modal frame" role="dialog">
+        <h3>CHOOSE YOUR PASSWORD</h3>
+        <p class="note">Welcome, <b>${esc(ME.display_name || ME.username)}</b>! Before you start, replace the starting password with one only you know.</p>
+        <label class="lbl">NEW PASSWORD</label><input class="inp" type="password" id="fp1" autocomplete="new-password">
+        <label class="lbl">TYPE IT AGAIN</label><input class="inp" type="password" id="fp2" autocomplete="new-password">
+        <p class="hint">At least 8 characters. Don't reuse the starting password or a password from another site.</p>
+        <p class="err" id="fpe"></p>
+        <div class="modal-actions"><button class="btn ghost" id="fpOut">LOG OUT</button><button class="btn green" id="fpGo">SAVE PASSWORD</button></div></div>`;
+      document.body.appendChild(back);
+      const q = x => back.querySelector(x);
+      q('#fp1').focus();
+      q('#fpOut').onclick = async () => { await sb.auth.signOut(); location.replace('login.html'); };
+      const go = async () => {
+        const a = q('#fp1').value, b = q('#fp2').value, e = q('#fpe');
+        if (a.length < 8) return e.textContent = 'Use at least 8 characters.';
+        if (a !== b) return e.textContent = "The two passwords don't match.";
+        if (a.toLowerCase() === (ME.username || '').toLowerCase()) return e.textContent = "Don't use your username as your password.";
+        q('#fpGo').disabled = true;
+        const { error } = await sb.auth.updateUser({ password: a });
+        q('#fpGo').disabled = false;
+        if (error) return e.textContent = /different|same/i.test(error.message) ? 'Pick something different from the starting password.' : error.message;
+        await sb.rpc('password_changed');
+        back.remove(); toast('PASSWORD SAVED', 'Use it next time you log in.'); done();
+      };
+      q('#fpGo').onclick = go;
+      q('#fp2').addEventListener('keydown', ev => { if (ev.key === 'Enter') go(); });
+    });
+  }
+
   /* ---------------- page bootstrap ---------------- */
   // Visuals start immediately; HUD/nav fill in once the login is verified.
   async function init(active, opts = {}){
@@ -674,6 +713,7 @@
     if (opts.ciso && PREVIEW){ ssSet('soc.preview', null); await loadMe(); }   // opening a CISO page ends Student View
     if (opts.ciso && ME.role !== 'ciso'){ location.replace('index.html'); return never(); }
     previewBar();
+    await forcePasswordChange();
     renderHUD(); renderNav(active); annBadge(); if (active !== 'CHAT') chatBadge(); startIdleWatch();
     // show this user's own background (the login screen used whoever logged in last on this device)
     const mine = store.get(bgKey('bg')) || '{}', myImg = store.get(bgKey('bgimg')) || '';

@@ -24,7 +24,8 @@ In **SQL Editor → New query**, run each of these files in order (paste all of 
 3. `supabase/update-lab-builder.sql`: the Lab Builder, screenshot uploads and live progress.
 4. `supabase/update-class-order.sql`: lets you set the order students are listed in.
 5. `supabase/update-chat.sql`: the class chat.
-6. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
+6. `supabase/update-first-login.sql`: new students choose their own password the first time they log in.
+7. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
    Then run this as its own query to fetch the first batch now: `select public.intel_refresh();`
 
 ### 3. Connect the website
@@ -46,7 +47,12 @@ The anon key is designed to be public. The database rules decide what each perso
 
 ### 5. First run
 1. Open **Console → Labs** and click **Import starter labs**. This adds the Network Isolation Lab.
-2. Open **Console → Operators** and create your students. Bulk create lets you add a whole class at once.
+2. Open **Console → Operators** and create your students. With **Bulk create**, paste one student per line as `First Last`:
+   - the username is the first name in lowercase (a second student with the same first name gets a last initial)
+   - the display name is the full name
+   - everyone gets the starting password you type (remembered only on your computer)
+
+   You get a list to copy or print, and each student picks a new password at first login.
 3. Optional: delete the `starter-labs/` folder from the repo afterwards. Files in the repo are public; uploaded labs live in the database behind the login.
 
 ---
