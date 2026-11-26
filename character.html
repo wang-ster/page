@@ -32,6 +32,10 @@
       </div>
       <div class="toolbar">
         <input class="search" id="q" placeholder="> find student_" autocomplete="off">
+        <label class="lbl" style="margin:0">ORDER</label>
+        <select class="inp" id="order" style="width:auto">
+          <option value="class">Class order</option><option value="last">A–Z last name</option><option value="first">A–Z first name</option></select>
+        <a class="btn sm ghost" href="console.html#operators" title="Set the class order in Console → Operators">⇅ EDIT CLASS ORDER</a>
         <div class="cc-tally" id="tally"></div>
       </div>
       <p class="note" id="rules"></p>
@@ -53,6 +57,9 @@
   let students = [], factors = [], rules = { e_at: 3, u_at: -3 };
   let events = [], days = {};                                             // for the selected day
   let day = localDay(), q = '';
+  let sortMode = Core.store.get('soc.ccOrder') || 'class';
+  $('order').value = sortMode;
+  $('order').onchange = e => { sortMode = e.target.value; Core.store.set('soc.ccOrder', sortMode); Core.sortStudents(students, sortMode); render(); };
   $('day').value = day;
 
   /* ---------- grading rules ---------- */
@@ -68,8 +75,7 @@
 
   /* ---------- load ---------- */
   async function loadStatic(){
-    students = must(await sb.from('profiles').select('id,username,display_name').eq('role', 'analyst'));
-    students.sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username));
+    students = Core.sortStudents(must(await sb.from('profiles').select('id,username,display_name,sort_order').eq('role', 'analyst')), sortMode);
     factors = must(await sb.from('character_factors').select('*').eq('active', true).order('sort'));
     rules = must(await sb.from('character_settings').select('*').eq('id', 1).maybeSingle()) || rules;
   }

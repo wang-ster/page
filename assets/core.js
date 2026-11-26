@@ -646,6 +646,16 @@
     draw();
   }
 
+  /* class order: 'class' (CISO's saved order) | 'first' | 'last' name */
+  function sortStudents(list, mode = 'class'){
+    const name = s => (s.display_name || s.username || '').trim();
+    const last = s => { const p = name(s).split(/\s+/); return (p.length > 1 ? p[p.length - 1] + ' ' + p.slice(0, -1).join(' ') : name(s)).toLowerCase(); };
+    const byName = (a, b) => name(a).toLowerCase().localeCompare(name(b).toLowerCase());
+    return list.sort(mode === 'last' ? (a, b) => last(a).localeCompare(last(b))
+      : mode === 'first' ? byName
+      : (a, b) => (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9) || byName(a, b));
+  }
+
   /* ---------------- page bootstrap ---------------- */
   // Visuals start immediately; HUD/nav fill in once the login is verified.
   async function init(active, opts = {}){
@@ -666,6 +676,6 @@
 
   window.Core = {
     init, sb, api, must, configured, refreshMe, get me(){ return ME; }, get preview(){ return PREVIEW; }, get realMe(){ return REAL; }, setPreview,
-    hydrate, splash, showBackground, markAnnouncementsSeen, icon, esc, modal, confirmBox, toast, store, showAnnouncements, cfg: CFG
+    hydrate, splash, showBackground, sortStudents, markAnnouncementsSeen, icon, esc, modal, confirmBox, toast, store, showAnnouncements, cfg: CFG
   };
 })();

@@ -50,8 +50,7 @@
     return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s/60)}m ago` : s < 86400 ? `${Math.round(s/3600)}h ago` : `${Math.round(s/86400)}d ago`; };
 
   const labs = must(await sb.from('labs').select('id,code,title,kind,published').order('created_at'));
-  const students = must(await sb.from('profiles').select('id,username,display_name').eq('role', 'analyst'));
-  students.sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username));
+  const students = Core.sortStudents(must(await sb.from('profiles').select('id,username,display_name,sort_order').eq('role', 'analyst')));
   let labId = params.get('lab') || (labs[0] && labs[0].id);
   $('labSel').innerHTML = labs.map(l => `<option value="${l.id}" ${l.id === labId ? 'selected' : ''}>${esc(l.code)} · ${esc(l.title)}${l.published ? '' : ' (draft)'}</option>`).join('');
   $('labSel').onchange = e => { labId = e.target.value; history.replaceState(null, '', `monitor.html?lab=${labId}`); load(); };

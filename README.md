@@ -58,6 +58,7 @@ The anon key is designed to be public. The database rules decide what each perso
 | Grade work | **Gradebook**: View Work shows written answers; enter a grade and feedback, then Release Grade |
 | Let a student resubmit a lab | **Gradebook → Unlock resubmit** (students can only submit once otherwise) |
 | Award a diamond | **Operators →** the + button |
+| Put students in your gradebook's order | **Operators → ⇅ Set class order**: drag, sort A–Z by first/last name, or paste your list |
 | Reset a password | **Operators → Reset PW** |
 | Hand out a shop reward | **Requisitions → Fulfill** (Deny refunds the student) |
 | Post to students | **Announcements** page (the form at the top is only visible to you) |

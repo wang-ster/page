@@ -617,3 +617,11 @@ html.previewing .app, html.previewing .player-shell{padding-top:52px}
 
 /* anything marked hidden stays hidden, even buttons/links with their own display style */
 [hidden]{display:none !important}
+
+/* class order editor */
+.order-list{list-style:none; display:flex; flex-direction:column; gap:4px; max-height:52vh; overflow:auto; padding-right:4px}
+.order-list li{display:flex; align-items:center; gap:10px; padding:5px 8px; background:#071a2c; border:2px solid var(--ink); box-shadow:inset 0 0 0 2px #1d4a66; cursor:grab}
+.order-list li b{font-family:var(--font-head); font-size:9px; color:var(--accent); min-width:26px}
+.order-list li .nm{flex:1}
+.order-list li .grip{color:var(--muted); letter-spacing:-3px}
+.order-list li.dragging{opacity:.4} .order-list li.over{box-shadow:inset 0 0 0 2px var(--green)}
