@@ -67,11 +67,13 @@
   function gradeOf(id){
     const d = days[id] || {};
     if (d.attendance) return d.attendance;                               // A or A/x
-    if (d.override) return d.override;
     const s = scoreOf(id);
-    return s >= rules.e_at ? 'E' : s <= rules.u_at ? 'U' : 'S';
+    const base = d.override || (s >= rules.e_at ? 'E' : s <= rules.u_at ? 'U' : 'S');
+    if (d.late) return (base === 'E' ? 'S' : base) + '/L';              // late: E isn't possible, best is S/L
+    return base;
   }
-  const gradeClass = g => ({ 'E':'g-e', 'S':'g-s', 'U':'g-u', 'A':'g-a', 'A/x':'g-ax' })[g];
+  const gradeClass = g => ({ 'E':'g-e', 'S':'g-s', 'U':'g-u', 'A':'g-a', 'A/x':'g-ax', 'S/L':'g-sl', 'U/L':'g-u' })[g];
+  const newCounts = () => ({ E:0, S:0, 'S/L':0, U:0, 'U/L':0, A:0, 'A/x':0 });
 
   /* ---------- load ---------- */
   async function loadStatic(){
@@ -88,8 +90,8 @@
   function render(){
     const isToday = day === localDay();
     $('sub').textContent = `// ${isToday ? 'TODAY · ' : ''}${new Date(day + 'T12:00').toLocaleDateString(undefined, { weekday:'long', month:'short', day:'numeric', year:'numeric' }).toUpperCase()}`;
-    $('rules').innerHTML = `Everyone starts at <b>S</b> with 0 points. <b>${fmtPts(rules.e_at)}</b> or more → <b>E</b> · <b>${fmtPts(rules.u_at)}</b> or less → <b>U</b>. Absences (<b>A</b>, <b>A/x</b>) and manual overrides replace the points grade.`;
-    const counts = { E:0, S:0, U:0, A:0, 'A/x':0 };
+    $('rules').innerHTML = `Everyone starts at <b>S</b> with 0 points. <b>${fmtPts(rules.e_at)}</b> or more → <b>E</b> · <b>${fmtPts(rules.u_at)}</b> or less → <b>U</b>. Absences (<b>A</b>, <b>A/x</b>) and manual overrides replace the points grade. <b>L</b> (late) caps the grade at <b>S/L</b> (or <b>U/L</b>).`;
+    const counts = newCounts();
     students.forEach(s => counts[gradeOf(s.id)]++);
     $('tally').innerHTML = Object.entries(counts).map(([g, n]) => `<span class="cc-chip ${gradeClass(g)}">${g} <b>${n}</b></span>`).join('');
 
@@ -102,12 +104,13 @@
           <div><h3>${esc(s.display_name || s.username)}</h3><span class="muted">${esc(s.username)}</span></div>
           <div class="cc-grade">${g}</div>
         </div>
-        <div class="cc-score">${fmtPts(pts)} PTS · ${n} MARK${n === 1 ? '' : 'S'}${d.override && !d.attendance ? ' · OVERRIDE' : ''}</div>
+        <div class="cc-score">${fmtPts(pts)} PTS · ${n} MARK${n === 1 ? '' : 'S'}${d.override && !d.attendance ? ' · OVERRIDE' : ''}${d.late && !d.attendance ? ' · LATE' : ''}</div>
         <div class="cc-factors">${factors.map(f =>
           `<button class="cc-f ${f.points > 0 ? 'pos' : 'neg'}" data-f="${f.id}" title="${esc(f.label)}">${fmtPts(f.points)} ${esc(f.label)}</button>`).join('')}</div>
         <div class="cc-foot">
           <button class="fchip ${d.attendance === 'A' ? 'on' : ''}" data-att="A" title="Absent">A</button>
           <button class="fchip ${d.attendance === 'A/x' ? 'on' : ''}" data-att="A/x" title="Excused absence">A/x</button>
+          <button class="fchip late ${d.late && !d.attendance ? 'on' : ''}" data-late title="Late: grade capped at S/L">L</button>
           <select class="inp tiny" data-ovr title="Manual override" style="width:92px">
             <option value="">AUTO</option>${['E','S','U'].map(x => `<option ${d.override === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
           <button class="btn sm ghost" data-undo ${n ? '' : 'disabled'}>UNDO</button>
@@ -138,9 +141,15 @@
       });
       card.querySelectorAll('[data-att]').forEach(b => b.onclick = async () => {
         const v = b.dataset.att;
-        try { await setDay(id, { attendance: (days[id] || {}).attendance === v ? null : v }); render(); }
+        const on = (days[id] || {}).attendance !== v;
+        try { await setDay(id, on ? { attendance: v, late: false } : { attendance: null }); render(); }
         catch(e){ toast('ERROR', e.message); }
       });
+      card.querySelector('[data-late]').onclick = async () => {
+        const on = !(days[id] || {}).late || !!(days[id] || {}).attendance;
+        try { await setDay(id, on ? { late: true, attendance: null } : { late: false }); render(); }
+        catch(e){ toast('ERROR', e.message); }
+      };
       card.querySelector('[data-ovr]').onchange = async e => {
         try { await setDay(id, { override: e.target.value || null }); render(); } catch(err){ toast('ERROR', err.message); }
       };
@@ -187,7 +196,7 @@
   }
   $('sumBtn').onclick = () => {
     const rows = summaryRows();
-    const counts = { E:0, S:0, U:0, A:0, 'A/x':0 }; rows.forEach(r => counts[r.grade]++);
+    const counts = newCounts(); rows.forEach(r => counts[r.grade]++);
     const m = modal(`<h3>CHARACTER CHART · ${day}</h3>
       <div class="cc-tally" style="margin-bottom:12px">${Object.entries(counts).map(([g, n]) => `<span class="cc-chip ${gradeClass(g)}">${g} <b>${n}</b></span>`).join('')}</div>
       <div class="tbl-wrap"><table class="data"><tr><th>STUDENT</th><th>GRADE</th><th>POINTS</th><th>WHY</th></tr>

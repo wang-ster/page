@@ -650,3 +650,8 @@ html.previewing .app, html.previewing .player-shell{padding-top:52px}
 .chat-banner{margin-top:10px; padding:8px 12px; background:#2a1e08; border:2px solid var(--amber); color:var(--amber); font-size:19px}
 .chat-jump{position:absolute; left:50%; transform:translateX(-50%); bottom:96px; z-index:3}
 @media (max-width:760px){ .msg{max-width:92%} .chat-log{max-height:60vh} }
+/* late (S/L) on the character chart */
+.cc.g-sl{--gc:#7fb3d6}
+.cc-chip.g-sl{background:#7fb3d6}
+.cc-grade{font-size:16px}
+.fchip.late.on{background:var(--amber); color:var(--ink); box-shadow:inset -2px -2px 0 #a8641a}

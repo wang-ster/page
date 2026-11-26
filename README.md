@@ -25,7 +25,8 @@ In **SQL Editor → New query**, run each of these files in order (paste all of 
 4. `supabase/update-class-order.sql`: lets you set the order students are listed in.
 5. `supabase/update-chat.sql`: the class chat.
 6. `supabase/update-first-login.sql`: new students choose their own password the first time they log in.
-7. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
+7. `supabase/update-character-late.sql`: the Late (L) mark on the Character Chart.
+8. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
    Then run this as its own query to fetch the first batch now: `select public.intel_refresh();`
 
 ### 3. Connect the website
@@ -109,6 +110,7 @@ Open **Character** in the bottom bar.
 1. Everyone starts at **S** (0 points) each day.
 2. Tap a student's buttons as things happen, for example **+2 Active participation** or **−1 Distracted**. Their grade updates live: **E** at +3 or more, **U** at −3 or less.
 3. Mark **A** (absent) or **A/x** (excused absence) to replace the grade. **Override** sets E/S/U by hand.
+   Press **L** if a student is late: the grade can't be E and shows as **S/L** (or **U/L**). L and the absence marks cancel each other.
 4. **Undo** removes the last mark; **Log** shows every mark with its time and lets you add a note.
 5. **End-of-day summary** lists every student and their grade. Copy names + grades for your gradebook, download a CSV, or print it.
 
