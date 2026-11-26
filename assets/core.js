@@ -33,7 +33,7 @@
     medal:["kbbk..krrk",".kbbkkrrk.","..kbkkrk..","...kkkk...","..kggggk..",".kgwgggGk.","kgwggGggGk","kggGGGGgGk","kgggGgggGk",".kgggggGk.","..kGGGGk..","...kkkk..."],
     chest:["..kkkkkkkkkk..",".knnnnnnnnnnk.","kgnnnnnnnnnngk","kgNNNNNNNNNNgk","kkkkkkggkkkkkk","kgnnnkggknnngk","kgnnnnkknnnngk","kgnnnnnnnnnngk","kgNNNNNNNNNNgk","kkkkkkkkkkkkkk"],
     lock:["..kkkkkk..",".ksk..ksk.",".ksk..ksk.","kkkkkkkkkk","kgggkkgggk","kgggkkgggk","kggggkgggk","kGGGGGGGGk","kkkkkkkkkk"],
-    crystal:["...kkkk...","..kvwvvk..",".kvwvvvVk.","kvvvvvvVVk","kkkkkkkkkk",".kvvvvvVk.",".kvvvvvVk.","..kvvvVk..","..kvvvVk..","...kvVk...","....kk...."],
+    crystal:["..kkkkkkkk..",".kcwcbbcbbBk","kcwcbbbcbbBk","kBBBBBBBBBBk",".kcbbbbbbBk.","..kcbbbbBk..","...kcbbBk...","....kbBk....",".....kk....."],
     coin:["..kkkkkk..",".kwgggggk.","kwggkkggGk","kgggkgggGk","kgggkgggGk","kgggkgggGk","kgggkgggGk","kgggkkggGk",".kGGGGGGk.","..kkkkkk.."],
     analyst:["...kkkkkk...","..knnnnnnk..",".knnnnnnnnk.","kSknppppnkSk","kSkpkppkpkSk","kSkppppppkSk","..kSppPPpk..","...kcpppk...","..kkkkkkkk..",".kBBBcBBBBk.","kBBBBcBBBBBk","kkkkkkkkkkkk"],
     check:["........kk",".......kek","kk....kek.","kek..kek..",".kekkek...","..keek....","...kk....."],

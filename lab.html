@@ -11,6 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="assets/settings.js"></script>
 <script src="assets/core.js"></script>
+<script src="assets/labkit.js"></script>
 </head>
 <body>
 <canvas id="splash" width="320" height="180"></canvas>
@@ -24,24 +25,25 @@
     <span class="status" id="status"></span>
     <button class="btn green" id="submit" disabled>SUBMIT LAB</button>
   </header>
+  <div class="lab-built frame" id="built" hidden><div class="lk-doc" id="doc"></div></div>
   <iframe class="lab-frame" id="frame" title="Lab"
     sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>
 </div>
 
 <script>
-/* Uploaded labs run inside a sandboxed frame with no access to your login.
-   A tiny bridge gives each lab:
-     • localStorage that is saved to the student's account (progress follows them)
-     • window.SOC_LAB.progress({score, max})  — optional live score
-     • window.SOC_LAB.complete({score, max, answers}) — optional auto-submit      */
+/* Two kinds of lab:
+   • Lab Builder labs ("built"): drawn right here; answers and screenshots save to the student's account.
+   • Uploaded HTML labs: run in a sandboxed frame with no access to the login. A small bridge
+     (LabKit.htmlDoc) saves their localStorage to the account and lets them report a score.   */
 (async () => {
   const me = await Core.init('LABS');
-  const { sb, esc, must, toast } = Core;
+  const { sb, esc, toast } = Core;
   const id = new URLSearchParams(location.search).get('id');
   const $ = s => document.getElementById(s);
 
-  const { data: lab } = await sb.from('labs').select('*').eq('id', id).maybeSingle();
+  let { data: lab } = await sb.from('labs').select('*').eq('id', id).maybeSingle();
   if (!lab){ $('title').textContent = 'LAB NOT FOUND'; return; }
+  const built = lab.kind === 'built';
   document.title = `${lab.code} · ${lab.title}`;
   $('code').textContent = lab.code + (lab.published ? '' : ' · DRAFT');
   $('title').textContent = lab.title;
@@ -50,85 +52,93 @@
   let labState = (saved && saved.state) || {};
   let comp = (await sb.from('completions').select('*').eq('user_id', me.id).eq('lab_id', id).maybeSingle()).data;
   let progress = { score: null, max: null };
+  const isLocked = () => !!(comp && !comp.unlocked);       // one submission unless the CISO unlocks it
 
   function paintStatus(){
     const graded = comp && comp.graded_at;
-    const locked = comp && !comp.unlocked;               // one submission unless the CISO unlocks it
     $('status').textContent = comp && comp.unlocked ? 'UNLOCKED' : graded ? '✔ GRADED' : comp ? '✔ SUBMITTED' : 'IN PROGRESS';
-    $('submit').disabled = !!locked || !lab.published;
+    $('submit').disabled = isLocked() || !lab.published;
     $('submit').textContent = comp && comp.unlocked ? 'RESUBMIT' : comp ? 'SUBMITTED' : 'SUBMIT LAB';
     $('fb').innerHTML = graded ? `GRADE: <b>${esc(comp.grade ?? '—')}</b>${comp.feedback ? ' · ' + esc(comp.feedback) : ''}` : '';
   }
   paintStatus();
 
-  // ---- build the sandboxed lab ----
-  const bridge = `<script>(function(){
-    var data = ${JSON.stringify(labState).replace(/</g, '\\u003c')};
-    var t; function push(){ clearTimeout(t); t = setTimeout(function(){ parent.postMessage({soc:'state', state:data}, '*'); }, 400); }
-    function mk(persist){ var d = persist ? data : {}; return {
-      getItem:function(k){ return Object.prototype.hasOwnProperty.call(d,k) ? d[k] : null; },
-      setItem:function(k,v){ d[k] = String(v); if(persist) push(); },
-      removeItem:function(k){ delete d[k]; if(persist) push(); },
-      clear:function(){ for (var k in d) delete d[k]; if(persist) push(); },
-      key:function(i){ var k = Object.keys(d)[i]; return k === undefined ? null : k; },
-      get length(){ return Object.keys(d).length; } }; }
-    try { Object.defineProperty(window, 'localStorage',   { value: mk(true),  configurable: true }); } catch(e){}
-    try { Object.defineProperty(window, 'sessionStorage', { value: mk(false), configurable: true }); } catch(e){}
-    /* in-page "#section" links: keep them inside the lab instead of loading the site into the frame */
-    window.addEventListener('click', function(e){
-      var a = e.target && e.target.closest && e.target.closest('a[href^="#"]');
-      if (!a || e.defaultPrevented) return;
-      e.preventDefault();
-      var h = a.getAttribute('href');
-      if (h.length > 1) location.hash = h; else window.scrollTo(0, 0);
-    });
-    var lastPing = 0;
-    ['mousemove','mousedown','keydown','scroll','touchstart','wheel'].forEach(function(ev){
-      window.addEventListener(ev, function(){ var n = Date.now(); if (n - lastPing > 15000){ lastPing = n; parent.postMessage({soc:'activity'}, '*'); } }, {passive:true, capture:true});
-    });
-    window.SOC_LAB = {
-      progress: function(o){ parent.postMessage({soc:'progress', score:o&&o.score, max:o&&o.max}, '*'); },
-      complete: function(o){ parent.postMessage({soc:'complete', score:o&&o.score, max:o&&o.max, answers:o&&o.answers}, '*'); }
-    };
-  })();<\/script>`;
-  let html = lab.html;
-  const headAt = html.search(/<head[^>]*>/i);
-  if (headAt >= 0){ const end = html.indexOf('>', headAt) + 1; html = html.slice(0, end) + bridge + html.slice(end); }
-  else html = bridge + html;
-  const frame = $('frame');
-  frame.srcdoc = html;
-
-  // ---- messages from the lab ----
+  // ---- saving progress (both kinds) ----
   let saveT;
-  window.addEventListener('message', async e => {
-    if (e.source !== frame.contentWindow || !e.data || !e.data.soc) return;
-    const m = e.data;
-    if (m.soc === 'state'){
-      labState = m.state;
-      clearTimeout(saveT);
-      saveT = setTimeout(() => sb.from('lab_state').upsert({ user_id: me.id, lab_id: id, state: labState, updated_at: new Date().toISOString() }), 800);
-    }
-    if (m.soc === 'progress'){ progress = { score: m.score, max: m.max }; }
-    if (m.soc === 'complete'){ progress = { score: m.score ?? progress.score, max: m.max ?? progress.max }; await submit(m.answers, true); }
+  const saveNow = () => sb.from('lab_state').upsert({
+    user_id: me.id, lab_id: id, state: labState, score: progress.score, max_score: progress.max, updated_at: new Date().toISOString()
   });
+  const saveSoon = () => { clearTimeout(saveT); saveT = setTimeout(async () => {
+    const { error } = await saveNow();
+    $('fb').innerHTML = error ? `<span class="err">Not saved: ${esc(error.message)}</span>` : `Saved ${new Date().toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}`;
+  }, 800); };
+
+  if (built){
+    /* ---------- Lab Builder lab ---------- */
+    $('frame').hidden = true; $('built').hidden = false;
+    const draw = () => LabKit.render($('doc'), lab, {
+      mode: 'student', readOnly: isLocked(), state: labState,
+      onChange: st => { labState = st; saveSoon(); },
+      upload: async (file, blockId) => {
+        const ext = (file.name.split('.').pop() || file.type.split('/')[1] || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const path = `${me.id}/${lab.id}/${blockId}-${Date.now()}.${ext || 'png'}`;
+        const { error } = await sb.storage.from('screenshots').upload(path, file, { contentType: file.type || 'image/png' });
+        if (error) throw new Error(error.message);
+        return path;
+      },
+      remove: path => sb.storage.from('screenshots').remove([path]),
+      imgUrl: async path => (await sb.storage.from('screenshots').createSignedUrl(path, 3600)).data.signedUrl
+    });
+    draw();
+    // the CISO can unlock questions mid-lab: check every 15 s and redraw if the lab changed
+    let sig = JSON.stringify(lab.content);
+    setInterval(async () => {
+      const { data } = await sb.from('labs').select('content,published').eq('id', id).maybeSingle();
+      if (data && JSON.stringify(data.content) !== sig){
+        sig = JSON.stringify(data.content); lab.content = data.content;
+        const focused = document.activeElement?.dataset?.answer;
+        draw(); toast('LAB UPDATED', 'Your CISO unlocked new content.');
+        if (focused) document.querySelector(`[data-answer="${focused}"]`)?.focus();
+      }
+    }, 15000);
+  } else {
+    /* ---------- uploaded HTML lab ---------- */
+    const frame = $('frame');
+    frame.srcdoc = LabKit.htmlDoc(lab.html, labState, { persist: true });
+    window.addEventListener('message', async e => {
+      if (e.source !== frame.contentWindow || !e.data || !e.data.soc) return;
+      const m = e.data;
+      if (m.soc === 'state'){ labState = m.state; if (!isLocked()) saveSoon(); }
+      if (m.soc === 'progress'){ progress = { score: m.score, max: m.max }; if (!isLocked()) saveSoon(); }
+      if (m.soc === 'complete'){ progress = { score: m.score ?? progress.score, max: m.max ?? progress.max }; await submit(m.answers, true); }
+    });
+  }
 
   async function submit(answers, auto){
-    if (comp && !comp.unlocked) return;
+    if (isLocked()) return;
     if (!auto){
+      let warn = '';
+      if (built){
+        const p = LabKit.progress(lab, labState);
+        const left = (p.qTotal - p.qDone) + (p.sTotal - p.sDone);
+        if (left) warn = ` ${left} question${left === 1 ? '' : 's'}/screenshot${left === 1 ? '' : 's'} still blank.`;
+      }
       const sc = progress.score != null ? ` Current score: ${progress.score}${progress.max ? ' / ' + progress.max : ''}.` : '';
       const ok = await Core.confirmBox(comp ? 'RESUBMIT LAB?' : 'SUBMIT LAB?',
-        `Your work will be sent to your CISO for grading and you'll earn ${lab.xp} XP.${sc} You can only submit once, so make sure you're finished.`, 'SUBMIT');
+        `Your work will be sent to your CISO for grading and you'll earn ${lab.xp} XP.${sc}${warn} You can only submit once, so make sure you're finished.`, 'SUBMIT');
       if (!ok) return;
     }
     clearTimeout(saveT);
-    await sb.from('lab_state').upsert({ user_id: me.id, lab_id: id, state: labState, updated_at: new Date().toISOString() });
+    await saveNow();
     const { error } = await sb.rpc('submit_lab', {
       p_lab: id, p_score: progress.score, p_max: progress.max,
-      p_data: { state: labState, answers: answers ?? null }
+      p_data: built ? labState : { state: labState, answers: answers ?? null }
     });
     if (error){ toast('SUBMIT FAILED', error.message); return; }
     comp = (await sb.from('completions').select('*').eq('user_id', me.id).eq('lab_id', id).maybeSingle()).data;
     paintStatus(); await Core.refreshMe();
+    if (built) LabKit.render($('doc'), lab, { mode: 'student', readOnly: true, state: labState,
+      imgUrl: async path => (await sb.storage.from('screenshots').createSignedUrl(path, 3600)).data.signedUrl });
     toast('LAB SUBMITTED', `+${lab.xp} XP`);
   }
   $('submit').onclick = () => submit();

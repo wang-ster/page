@@ -47,7 +47,8 @@
   function tabBar(){
     const cur = location.hash.slice(1) in TABS ? location.hash.slice(1) : 'operators';
     document.getElementById('tabs').innerHTML = Object.entries(TABS).map(([k, v]) =>
-      `<a class="fchip ${k === cur ? 'on' : ''}" href="#${k}">${v}</a>`).join('');
+      `<a class="fchip ${k === cur ? 'on' : ''}" href="#${k}">${v}</a>`).join('')
+      + `<a class="fchip" href="monitor.html" style="margin-left:auto"><span class="live-dot"></span>LIVE MONITOR</a><a class="fchip" href="builder.html">+ LAB BUILDER</a>`;
     return cur;
   }
   async function show(){
@@ -144,12 +145,17 @@
 
   /* ================= LABS ================= */
   async labs(){
-    const labs = must(await sb.from('labs').select('id,code,title,category,threat,xp,description,published,created_at').order('created_at'));
+    const labs = must(await sb.from('labs').select('id,code,title,category,threat,xp,description,published,created_at,kind').order('created_at'));
     const nextCode = 'LAB-' + String(labs.length + 1).padStart(2, '0');
     const cats = [...new Set([...Object.keys(Core.cfg.categoryIcons), ...labs.map(l => l.category)])];
     body.innerHTML = `
       <div class="panel-box">
-        <h3>UPLOAD A MINI-LAB (.HTML)</h3>
+        <h3>BUILD A LAB ON THIS SITE</h3>
+        <p class="note">Write instructions, questions and screenshot uploads. You can lock/unlock questions and watch progress live.</p>
+        <a class="btn green" href="builder.html">+ OPEN LAB BUILDER</a>
+      </div>
+      <div class="panel-box">
+        <h3>OR UPLOAD A MINI-LAB (.HTML)</h3>
         <p class="note">It goes live for students the moment you upload it (untick Published to save it as a draft).</p>
         ${labForm({ code: nextCode, category: 'Network', threat: 1, xp: 100, published: true }, cats, true)}
         <div class="actions" style="margin-top:12px"><button class="btn green" id="up">UPLOAD &amp; PUBLISH</button>
@@ -158,10 +164,10 @@
       <div class="tbl-wrap"><table class="data">
         <tr><th>CODE</th><th>TITLE</th><th>CATEGORY</th><th>XP</th><th>STATUS</th><th>ACTIONS</th></tr>
         ${labs.map(l => `<tr data-id="${l.id}">
-          <td>${esc(l.code)}</td><td>${esc(l.title)}<br><span class="muted">${esc(l.description)}</span></td>
+          <td>${esc(l.code)}<br><span class="stamp ${l.kind === 'built' ? 'fulfilled' : 'draft'}">${l.kind === 'built' ? 'BUILDER' : 'HTML'}</span></td><td>${esc(l.title)}<br><span class="muted">${esc(l.description)}</span></td>
           <td>${esc(l.category)}</td><td>${l.xp}</td>
           <td><button class="btn sm ${l.published ? 'green' : 'ghost'}" data-pub>${l.published ? 'LIVE' : 'DRAFT'}</button></td>
-          <td><div class="actions"><a class="btn sm ghost" href="lab.html?id=${l.id}">OPEN</a><button class="btn sm" data-edit>EDIT</button><button class="btn sm red" data-del>DELETE</button></div></td>
+          <td><div class="actions"><a class="btn sm ghost" href="lab.html?id=${l.id}">OPEN</a><a class="btn sm ghost" href="monitor.html?lab=${l.id}">MONITOR</a>${l.kind === 'built' ? `<a class="btn sm" href="builder.html?id=${l.id}">EDIT</a>` : '<button class="btn sm" data-edit>EDIT</button>'}<button class="btn sm red" data-del>DELETE</button></div></td>
         </tr>`).join('') || '<tr><td colspan="6" class="muted">No labs yet.</td></tr>'}
       </table></div>`;
 
@@ -191,7 +197,7 @@
         if (!await confirmBox('DELETE LAB', `Delete ${l.code} "${l.title}"? Student submissions for it are deleted too, and the XP is removed.`, 'DELETE', true)) return;
         run(async () => { must(await sb.from('labs').delete().eq('id', l.id)); show(); }, 'LAB DELETED');
       };
-      $('[data-edit]', tr).onclick = () => {
+      if ($('[data-edit]', tr)) $('[data-edit]', tr).onclick = () => {
         const m = modal(`<h3>EDIT ${esc(l.code)}</h3>${labForm(l, cats, false)}
           <div class="modal-actions"><button class="btn ghost" data-close>CANCEL</button><button class="btn green" id="go">SAVE</button></div>`, { wide: true });
         wireFile(m.el);
@@ -257,10 +263,7 @@
         if (!await confirmBox('REVOKE SUBMISSION', `Delete this submission? ${r.profiles?.username} loses the XP for ${r.labs?.code} until they submit again.`, 'REVOKE', true)) return;
         run(async () => { must(await key(sb.from('completions').delete())); show(); }, 'SUBMISSION REVOKED');
       };
-      $('[data-view]', tr).onclick = async () => {
-        const { data } = await key(sb.from('completions').select('data')).single();
-        modal(`<h3>${esc(r.profiles?.username)} · ${esc(r.labs?.code)}</h3>${renderWork(data?.data)}`, { wide: true });
-      };
+      $('[data-view]', tr).onclick = () => { location.href = `review.html?lab=${r.lab_id}&user=${r.user_id}&mode=submitted`; };
     });
   },
 

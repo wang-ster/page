@@ -21,13 +21,9 @@ A cybersecurity class site, hosted on GitHub Pages with Supabase behind it for l
 In **SQL Editor → New query**, run each of these files in order (paste all of it, click **Run**):
 1. `supabase/user-admin.sql`: lets the Console create students, reset passwords, change roles and delete accounts.
 2. `supabase/update-character-grades.sql`: one-time lab submission with CISO unlock, plus the Character Chart.
-
-### 2b. (Optional) Intel news feed
-The Intel page needs one Edge Function. Everything else works without it.
-1. Go to **Edge Functions → Deploy a new function → Via Editor**.
-2. Name it exactly **`soc-api`**.
-3. Replace the sample code with all of `supabase/functions/soc-api/index.ts`, then click **Deploy**.
-4. Open the function's settings and turn **OFF "Verify JWT"**. The code checks the login itself.
+3. `supabase/update-lab-builder.sql`: the Lab Builder, screenshot uploads and live progress.
+4. `supabase/intel-news.sql`: the Intel news feed. The database fetches cybersecurity news every 30 minutes.
+   Then run this as its own query to fetch the first batch now: `select public.intel_refresh();`
 
 ### 3. Connect the website
 1. In Supabase, go to **Project Settings → API**.
@@ -66,6 +62,15 @@ The anon key is designed to be public. The database rules decide what each perso
 | Hand out a shop reward | **Requisitions → Fulfill** (Deny refunds the student) |
 | Post to students | **Announcements** |
 | Change XP levels or coin rewards | **Ranks** |
+
+## Lab Builder, Live Monitor and review
+- **Build a lab:** go to **Console → Labs → Open Lab Builder**. Add **Instructions**, **Questions** (open response, with points) and **Screenshot uploads**, in any order. The right side previews exactly what students see. **Save & Publish** makes it live.
+- **Lock / unlock:** tick **Locked** on any block to hide it until you're ready. Unlock it in the builder or with one click in the Live Monitor; students see it within 15 seconds.
+- **Live Monitor:** go to **Console → Live Monitor**, or **Monitor** next to any lab. Every student shows their status, progress and last activity, refreshing every 5 seconds.
+- **Watch one student:** click their card to see their lab exactly as they have it: answers, screenshots, or, for uploaded HTML labs, the lab itself replayed with their progress. **Live progress** updates every 5 seconds; **Submitted version** shows what they turned in. Grade and unlock resubmission from the same screen.
+- **Gradebook → View work** opens the same view for that submission.
+
+Students can paste a screenshot (**Ctrl+V**), drag it in, or choose a file. Screenshots are private: only that student and you can see them.
 
 ## Character Chart (CISO only)
 Open **Character** in the bottom bar.

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Review Work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+<script src="assets/labkit.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="review-shell">
+  <header class="player-bar frame">
+    <a class="btn ghost sm" id="back" href="monitor.html">◀ MONITOR</a>
+    <div class="pinfo"><span class="lab-code" id="code"></span><h1 id="title">LOADING…</h1></div>
+    <div class="filters" id="modes"></div>
+    <span class="summary" id="stamp"></span>
+  </header>
+  <div class="grade-bar frame" id="gradeBar"></div>
+  <div class="review-body" id="body"></div>
+</div>
+
+<script>
+(async () => {
+  await Core.init('CONSOLE', { ciso: true });
+  const { sb, esc, must, toast, modal } = Core;
+  const $ = s => document.getElementById(s);
+  const params = new URLSearchParams(location.search);
+  const labId = params.get('lab'), userId = params.get('user');
+  $('back').href = `monitor.html?lab=${labId}`;
+
+  const lab = must(await sb.from('labs').select('*').eq('id', labId).single());
+  const st = must(await sb.from('profiles').select('id,username,display_name').eq('id', userId).single());
+  const name = st.display_name || st.username;
+  document.title = `${name} · ${lab.code}`;
+  $('code').textContent = `${lab.code} · ${lab.title}`;
+  $('title').textContent = name.toUpperCase();
+
+  let comp = null, live = null, mode = null, lastSig = '';
+  const imgUrl = async path => (await sb.storage.from('screenshots').createSignedUrl(path, 3600)).data.signedUrl;
+
+  async function fetchAll(){
+    comp = must(await sb.from('completions').select('*').eq('user_id', userId).eq('lab_id', labId).maybeSingle());
+    live = must(await sb.from('lab_state').select('*').eq('user_id', userId).eq('lab_id', labId).maybeSingle());
+  }
+
+  function renderModes(){
+    $('modes').innerHTML = [['submitted', 'SUBMITTED VERSION'], ['live', 'LIVE PROGRESS']].map(([k, v]) =>
+      `<button class="fchip ${mode === k ? 'on' : ''}" data-m="${k}" ${k === 'submitted' && !comp ? 'disabled title="Not submitted yet"' : ''}>${k === 'live' ? '<span class="live-dot"></span>' : ''}${v}</button>`).join('')
+      + (lab.kind === 'html' ? '<button class="fchip" id="texts">WRITTEN ANSWERS</button>' : '');
+    document.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { if (b.disabled) return; mode = b.dataset.m; lastSig = ''; renderModes(); draw(); });
+    const t = $('texts'); if (t) t.onclick = () => {
+      const data = mode === 'submitted' ? comp && comp.data : live && live.state;
+      const list = LabKit.texts(data);
+      modal(`<h3>WRITTEN ANSWERS · ${mode === 'submitted' ? 'SUBMITTED' : 'LIVE'}</h3><div class="answers">${list.map(([p, v]) =>
+        `<div class="answer"><small>${esc(p)}</small>${esc(v)}</div>`).join('') || '<p class="note">No written answers found.</p>'}</div>`, { wide: true });
+    };
+  }
+
+  function renderGrade(){
+    const status = comp ? (comp.unlocked ? 'UNLOCKED FOR RESUBMIT' : comp.graded_at ? 'GRADED' : 'SUBMITTED') : live ? 'WORKING (NOT SUBMITTED)' : 'NOT STARTED';
+    const auto = comp && comp.score != null ? `${comp.score}${comp.max_score ? ' / ' + comp.max_score : ''}` : '—';
+    $('gradeBar').innerHTML = `
+      <span class="stamp ${comp ? (comp.graded_at ? 'fulfilled' : 'new') : 'pending'}">${status}</span>
+      ${comp ? `<span class="muted">submitted ${new Date(comp.submitted_at).toLocaleString()}</span>
+        <span class="muted">· auto score ${auto}</span>
+        <label class="lbl" style="margin:0">GRADE</label><input class="inp tiny" id="g" value="${esc(comp.grade ?? '')}" placeholder="${esc(comp.score ?? '')}">
+        <label class="lbl" style="margin:0">FEEDBACK</label><input class="inp" id="fbk" value="${esc(comp.feedback ?? '')}" style="flex:1; min-width:200px">
+        <button class="btn sm green" id="rel">${comp.graded_at ? 'UPDATE GRADE' : 'RELEASE GRADE'}</button>
+        <button class="btn sm ${comp.unlocked ? '' : 'ghost'}" id="unl">${comp.unlocked ? 'RELOCK' : 'UNLOCK RESUBMIT'}</button>` : ''}`;
+    if (!comp) return;
+    const key = q => q.eq('user_id', userId).eq('lab_id', labId);
+    $('rel').onclick = async () => {
+      const g = $('g').value.trim();
+      try { must(await key(sb.from('completions').update({ grade: g === '' ? comp.score : +g, feedback: $('fbk').value.trim() || null, graded_at: new Date().toISOString() })));
+            await fetchAll(); renderGrade(); toast('GRADE RELEASED', name); } catch(e){ toast('ERROR', e.message); }
+    };
+    $('unl').onclick = async () => {
+      try { must(await key(sb.from('completions').update({ unlocked: !comp.unlocked }))); await fetchAll(); renderGrade();
+            toast(comp.unlocked ? 'UNLOCKED' : 'RELOCKED', comp.unlocked ? `${name} can resubmit once.` : ''); } catch(e){ toast('ERROR', e.message); }
+    };
+  }
+
+  /* draw the lab exactly as the student has it (submitted snapshot or live) */
+  function draw(){
+    const data = mode === 'submitted' ? (comp && comp.data) : (live && live.state);
+    const sig = JSON.stringify([mode, data, lab.content]);
+    if (sig === lastSig) return;                        // nothing changed: don't disturb the view
+    lastSig = sig;
+    const when = mode === 'submitted' ? comp && comp.submitted_at : live && live.updated_at;
+    $('stamp').textContent = when ? `${mode === 'live' ? 'LAST CHANGE' : 'SUBMITTED'} ${new Date(when).toLocaleTimeString()}` : 'NO WORK YET';
+    const body = $('body');
+    if (lab.kind === 'built'){
+      const keep = body.querySelector('.lab-built')?.scrollTop || 0;
+      body.innerHTML = '<div class="lab-built frame" style="height:100%"><div class="lk-doc" id="doc"></div></div>';
+      LabKit.render($('doc'), lab, { mode: 'review', state: JSON.parse(JSON.stringify(data || {})), imgUrl });
+      body.querySelector('.lab-built').scrollTop = keep;
+    } else {
+      // HTML labs replay inside the sandbox with the student's saved data; your clicks are not saved
+      const state = mode === 'submitted' ? (data && data.state) : data;
+      body.innerHTML = `<iframe class="lab-frame" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Student lab"></iframe>`;
+      body.querySelector('iframe').srcdoc = LabKit.htmlDoc(lab.html, state || {}, { persist: false });
+    }
+  }
+
+  await fetchAll();
+  mode = params.get('mode') || (comp ? 'submitted' : 'live');
+  renderModes(); renderGrade(); draw();
+
+  // live mode: check for changes every 5 seconds
+  setInterval(async () => {
+    if (mode !== 'live' || document.hidden) return;
+    const s = must(await sb.from('lab_state').select('*').eq('user_id', userId).eq('lab_id', labId).maybeSingle());
+    live = s; draw();
+  }, 5000);
+})();
+</script>
+</body>
+</html>

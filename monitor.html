@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Live Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+<script src="assets/labkit.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>LIVE MONITOR<small id="sub">// PICK A LAB</small></h1>
+        <div class="actions">
+          <select class="inp" id="labSel" style="width:auto; max-width:340px"></select>
+          <a class="btn ghost sm" id="editLink" hidden>EDIT LAB</a>
+          <label class="chk" style="margin:0"><input type="checkbox" id="auto" checked> <span class="live-dot"></span>AUTO-REFRESH</label>
+        </div>
+      </div>
+      <div class="lockbar" id="locks"></div>
+      <div class="toolbar"><div class="cc-tally" id="tally"></div><span class="summary" id="stamp"></span></div>
+      <div class="page-body"><div class="mon-grid" id="grid"><p class="loading">LOADING</p></div></div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script>
+(async () => {
+  await Core.init('CONSOLE', { ciso: true });
+  const { sb, esc, must, toast } = Core;
+  const $ = s => document.getElementById(s);
+  const params = new URLSearchParams(location.search);
+  const ago = iso => { if (!iso) return 'never'; const s = Math.round((Date.now() - new Date(iso)) / 1000);
+    return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s/60)}m ago` : s < 86400 ? `${Math.round(s/3600)}h ago` : `${Math.round(s/86400)}d ago`; };
+
+  const labs = must(await sb.from('labs').select('id,code,title,kind,published').order('created_at'));
+  const students = must(await sb.from('profiles').select('id,username,display_name').eq('role', 'analyst'));
+  students.sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username));
+  let labId = params.get('lab') || (labs[0] && labs[0].id);
+  $('labSel').innerHTML = labs.map(l => `<option value="${l.id}" ${l.id === labId ? 'selected' : ''}>${esc(l.code)} · ${esc(l.title)}${l.published ? '' : ' (draft)'}</option>`).join('');
+  $('labSel').onchange = e => { labId = e.target.value; history.replaceState(null, '', `monitor.html?lab=${labId}`); load(); };
+  if (!labs.length){ $('grid').innerHTML = '<p class="note">No labs yet.</p>'; return; }
+
+  let lab = null;
+  async function load(){
+    lab = must(await sb.from('labs').select('id,code,title,kind,content').eq('id', labId).single());
+    $('sub').textContent = `// ${lab.code} · ${lab.title.toUpperCase()}`;
+    $('editLink').hidden = lab.kind !== 'built'; $('editLink').href = `builder.html?id=${lab.id}`;
+    renderLocks(); await refresh();
+  }
+
+  /* lock / unlock blocks for the whole class (Lab Builder labs) */
+  function renderLocks(){
+    if (lab.kind !== 'built'){ $('locks').innerHTML = '<span class="hint">Uploaded HTML lab: click a student to watch their screen live.</span>'; return; }
+    let q = 0, s = 0, t = 0;
+    $('locks').innerHTML = '<span class="lbl" style="margin:0 6px 0 0">CLASS ACCESS:</span>' + lab.content.map((b, i) => {
+      const name = b.type === 'question' ? `Q${++q}` : b.type === 'screenshot' ? `SHOT ${++s}` : `INFO ${++t}`;
+      return `<button class="fchip ${b.locked ? '' : 'on'}" data-i="${i}" title="${esc((b.body || '').slice(0, 80))}">${b.locked ? '🔒' : '🔓'} ${name}</button>`;
+    }).join('') + '<span class="hint" style="margin-left:6px">Click to lock/unlock for everyone. Students see changes within 15 seconds.</span>';
+    document.querySelectorAll('#locks [data-i]').forEach(btn => btn.onclick = async () => {
+      const b = lab.content[+btn.dataset.i]; b.locked = !b.locked;
+      try { must(await sb.from('labs').update({ content: lab.content }).eq('id', lab.id)); renderLocks(); refresh();
+            toast(b.locked ? 'LOCKED' : 'UNLOCKED', 'For the whole class.'); }
+      catch(e){ b.locked = !b.locked; toast('ERROR', e.message); }
+    });
+  }
+
+  async function refresh(){
+    const states = must(await sb.from('lab_state').select('user_id,state,score,max_score,updated_at').eq('lab_id', labId));
+    const comps = must(await sb.from('completions').select('user_id,submitted_at,graded_at,grade,unlocked,score,max_score').eq('lab_id', labId));
+    const S = Object.fromEntries(states.map(s => [s.user_id, s])), C = Object.fromEntries(comps.map(c => [c.user_id, c]));
+    const counts = { 'NOT STARTED': 0, 'WORKING': 0, 'SUBMITTED': 0, 'GRADED': 0 };
+    $('grid').innerHTML = students.map(st => {
+      const s = S[st.id], c = C[st.id];
+      const status = c ? (c.unlocked ? 'UNLOCKED' : c.graded_at ? 'GRADED' : 'SUBMITTED') : s ? 'WORKING' : 'NOT STARTED';
+      counts[status === 'UNLOCKED' ? 'WORKING' : status]++;
+      const recent = s && Date.now() - new Date(s.updated_at) < 120000;
+      let prog = '';
+      if (lab.kind === 'built'){
+        const p = LabKit.progress(lab, s && s.state);
+        prog = `<div class="bar mini"><i style="width:${(p.pct*100).toFixed(0)}%"></i><span>${p.qDone}/${p.qTotal} Q · ${p.sDone}/${p.sTotal} 📷</span></div>`;
+      } else if (s && s.score != null){
+        prog = `<div class="bar mini"><i style="width:${s.max_score ? Math.min(100, s.score / s.max_score * 100) : 0}%"></i><span>SCORE ${s.score}${s.max_score ? '/' + s.max_score : ''}</span></div>`;
+      }
+      const stampCls = { 'NOT STARTED': 'draft', WORKING: 'pending', SUBMITTED: 'new', GRADED: 'fulfilled', UNLOCKED: 'pending' }[status];
+      return `<a class="mon frame sm ${s || c ? '' : 'idle'}" href="review.html?lab=${labId}&user=${st.id}">
+        <h3>${esc(st.display_name || st.username)}</h3>
+        <div><span class="stamp ${stampCls}">${status}</span>${c && c.graded_at ? ` <span class="muted">grade ${esc(c.grade ?? '—')}</span>` : ''}</div>
+        ${prog}
+        <span class="muted">${recent ? '<span class="live-dot"></span>' : ''}active ${ago(s && s.updated_at)}</span>
+      </a>`;
+    }).join('') || '<p class="note">No students yet.</p>';
+    $('tally').innerHTML = Object.entries(counts).map(([k, n]) => `<span class="cc-chip">${k} <b>${n}</b></span>`).join('');
+    $('stamp').textContent = `UPDATED ${new Date().toLocaleTimeString()}`;
+  }
+
+  setInterval(() => { if ($('auto').checked && lab && !document.hidden) refresh().catch(() => {}); }, 5000);
+  load();
+})();
+</script>
+</body>
+</html>

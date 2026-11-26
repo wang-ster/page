@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Lab Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+<script src="assets/labkit.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>LAB BUILDER<small id="sub">// NEW LAB</small></h1>
+        <div class="actions">
+          <a class="btn ghost sm" href="console.html#labs">◀ LABS</a>
+          <a class="btn ghost sm" id="monitorLink" hidden>LIVE MONITOR</a>
+          <button class="btn ghost" id="saveDraft">SAVE</button>
+          <button class="btn green" id="savePub">SAVE &amp; PUBLISH</button>
+        </div>
+      </div>
+      <div class="builder">
+        <div class="col">
+          <div class="panel-box">
+            <div class="form-grid">
+              <div><label class="lbl">CODE</label><input class="inp" id="code"></div>
+              <div class="span2"><label class="lbl">TITLE</label><input class="inp" id="title" placeholder="e.g. Phishing Triage"></div>
+              <div><label class="lbl">CATEGORY</label><input class="inp" id="category" list="catlist"><datalist id="catlist"></datalist></div>
+              <div><label class="lbl">THREAT (1–3)</label><select class="inp" id="threat"><option>1</option><option>2</option><option>3</option></select></div>
+              <div><label class="lbl">XP</label><input class="inp" type="number" min="0" id="xp"></div>
+              <div class="span2"><label class="lbl">ONE-LINE DESCRIPTION</label><input class="inp" id="desc"></div>
+            </div>
+          </div>
+          <div id="blocks"></div>
+          <div class="add-row">
+            <button class="btn sm" data-add="text">+ INSTRUCTIONS</button>
+            <button class="btn sm green" data-add="question">+ QUESTION</button>
+            <button class="btn sm" data-add="screenshot" style="background:linear-gradient(180deg,#ffd9a0 0 40%,var(--amber) 40%);box-shadow:inset -3px -3px 0 #a8641a,0 3px 0 #000a">+ SCREENSHOT UPLOAD</button>
+          </div>
+          <p class="hint">Formatting: <b># Heading</b>, <b>**bold**</b>, <b>*italic*</b>, <b>`code`</b>, lines starting with <b>-</b> or <b>1.</b> for lists,
+            <b>```</b> on its own line to start/end a code block, <b>[text](https://link)</b>, <b>![](https://image-url)</b>.
+            Tick <b>Locked</b> to hide a block from students until you unlock it (here or in the Live Monitor).</p>
+        </div>
+        <div class="col">
+          <div class="lbl" style="margin-top:0">STUDENT PREVIEW</div>
+          <div class="preview-wrap"><div class="lk-doc" id="preview"></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script>
+(async () => {
+  await Core.init('CONSOLE', { ciso: true });
+  const { sb, esc, must, toast, confirmBox } = Core;
+  const $ = s => document.getElementById(s);
+  let labId = new URLSearchParams(location.search).get('id');
+
+  const all = must(await sb.from('labs').select('id,category,code'));
+  $('catlist').innerHTML = [...new Set([...Object.keys(Core.cfg.categoryIcons), ...all.map(l => l.category)])].map(c => `<option value="${esc(c)}">`).join('');
+
+  let lab = { code: 'LAB-' + String(all.length + 1).padStart(2, '0'), title: '', category: 'General', threat: 1, xp: 100, description: '', published: false,
+    content: [
+      { id: LabKit.newId(), type: 'text', body: '# Mission briefing\nExplain what students will do and why it matters.\n\n1. First step\n2. Second step' },
+      { id: LabKit.newId(), type: 'question', body: 'What did you find? Explain in 2–3 sentences.', points: 10 },
+      { id: LabKit.newId(), type: 'screenshot', body: 'Upload a screenshot showing your finished work.' }
+    ] };
+  if (labId){
+    const found = must(await sb.from('labs').select('*').eq('id', labId).maybeSingle());
+    if (!found){ toast('NOT FOUND', 'That lab does not exist.'); labId = null; }
+    else if (found.kind !== 'built'){ location.replace('console.html#labs'); return; }
+    else lab = found;
+  }
+  lab.content = lab.content || [];
+
+  function fillMeta(){
+    $('code').value = lab.code; $('title').value = lab.title; $('category').value = lab.category;
+    $('threat').value = lab.threat; $('xp').value = lab.xp; $('desc').value = lab.description || '';
+    $('sub').textContent = labId ? `// EDITING ${lab.code}${lab.published ? ' · LIVE' : ' · DRAFT'}` : '// NEW LAB (NOT SAVED YET)';
+    if (labId){ $('monitorLink').hidden = false; $('monitorLink').href = `monitor.html?lab=${labId}`; }
+  }
+  const readMeta = () => Object.assign(lab, {
+    code: $('code').value.trim(), title: $('title').value.trim(), category: $('category').value.trim() || 'General',
+    threat: +$('threat').value, xp: Math.max(0, +$('xp').value || 0), description: $('desc').value.trim()
+  });
+
+  const LABEL = { text: 'INSTRUCTIONS', question: 'QUESTION', screenshot: 'SCREENSHOT UPLOAD' };
+  function renderBlocks(){
+    let q = 0, s = 0;
+    $('blocks').innerHTML = lab.content.map((b, i) => {
+      const n = b.type === 'question' ? ` ${++q}` : b.type === 'screenshot' ? ` ${++s}` : '';
+      return `<div class="bk t-${b.type}" data-i="${i}">
+        <div class="bk-head">
+          <span class="stamp ${b.type === 'question' ? 'fulfilled' : b.type === 'screenshot' ? 'pending' : 'new'}">${LABEL[b.type]}${n}</span>
+          ${b.type === 'question' ? `<label class="chk" style="margin:0">PTS <input class="inp tiny" type="number" min="0" data-k="points" value="${b.points ?? ''}" style="width:70px"></label>` : ''}
+          <span class="grow"></span>
+          <label class="chk" style="margin:0"><input type="checkbox" data-k="locked" ${b.locked ? 'checked' : ''}> Locked</label>
+          <button class="btn sm ghost" data-mv="-1" ${i ? '' : 'disabled'} title="Move up">▲</button>
+          <button class="btn sm ghost" data-mv="1" ${i < lab.content.length - 1 ? '' : 'disabled'} title="Move down">▼</button>
+          <button class="btn sm red" data-del title="Delete">✕</button>
+        </div>
+        <textarea class="inp" data-k="body" placeholder="${b.type === 'text' ? 'Instructions for students…' : b.type === 'question' ? 'The question students answer…' : 'What should the screenshot show?'}">${esc(b.body || '')}</textarea>
+      </div>`;
+    }).join('') || '<p class="note">Add instructions, questions and screenshot uploads below.</p>';
+    document.querySelectorAll('.bk').forEach(el => {
+      const b = lab.content[+el.dataset.i];
+      el.querySelector('[data-k=body]').oninput = e => { b.body = e.target.value; preview(); };
+      const pts = el.querySelector('[data-k=points]'); if (pts) pts.oninput = e => { b.points = e.target.value === '' ? null : +e.target.value; preview(); };
+      el.querySelector('[data-k=locked]').onchange = e => { b.locked = e.target.checked; preview(); };
+      el.querySelectorAll('[data-mv]').forEach(btn => btn.onclick = () => {
+        const i = +el.dataset.i, j = i + +btn.dataset.mv;
+        [lab.content[i], lab.content[j]] = [lab.content[j], lab.content[i]]; renderBlocks(); preview();
+      });
+      el.querySelector('[data-del]').onclick = async () => {
+        if ((b.body || '').trim() && !await confirmBox('DELETE BLOCK', 'Remove this block? Student answers to it will no longer be shown.', 'DELETE', true)) return;
+        lab.content.splice(+el.dataset.i, 1); renderBlocks(); preview();
+      };
+    });
+  }
+  const preview = () => LabKit.render($('preview'), lab, { mode: 'preview' });
+
+  document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => {
+    const type = b.dataset.add;
+    lab.content.push({ id: LabKit.newId(), type, body: '', ...(type === 'question' ? { points: 10 } : {}) });
+    renderBlocks(); preview();
+    const tas = document.querySelectorAll('.bk textarea'); tas[tas.length - 1]?.focus();
+  });
+
+  async function save(publish){
+    readMeta();
+    if (!lab.code || !lab.title) return toast('MISSING INFO', 'Give the lab a code and a title.');
+    if (!lab.content.length) return toast('EMPTY LAB', 'Add at least one block.');
+    const row = { code: lab.code, title: lab.title, category: lab.category, threat: lab.threat, xp: lab.xp,
+      description: lab.description, kind: 'built', content: lab.content, html: '', published: publish ? true : lab.published };
+    try {
+      if (labId) must(await sb.from('labs').update(row).eq('id', labId));
+      else { labId = must(await sb.from('labs').insert(row).select('id').single()).id; history.replaceState(null, '', `builder.html?id=${labId}`); }
+      lab.published = row.published; fillMeta();
+      toast(publish ? 'LAB PUBLISHED' : 'SAVED', publish ? 'Students can open it now.' : (lab.published ? 'Changes are live.' : 'Draft saved. Students can\'t see it yet.'));
+    } catch(e){ toast('SAVE FAILED', e.message); }
+  }
+  $('saveDraft').onclick = () => save(false);
+  $('savePub').onclick = () => save(true);
+  ['code','title','category','threat','xp','desc'].forEach(k => $(k).addEventListener('input', () => { readMeta(); }));
+
+  fillMeta(); renderBlocks(); preview();
+})();
+</script>
+</body>
+</html>

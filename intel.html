@@ -63,15 +63,16 @@
     `<tr><td>${esc(x.source)}</td><td>${x.ok ? `<span class="stamp fulfilled">OK</span>` : `<span class="stamp denied">FAILED</span>`}</td>
       <td>${x.ok ? x.count + ' in last 7 days' : esc(x.error || '')}</td></tr>`).join('');
   try {
-    const res = await Core.api('news');
+    const { data: res, error } = await Core.sb.rpc('intel_news');
+    if (error) throw new Error(/intel_news/.test(error.message) ? 'News isn\'t set up yet. Run supabase/intel-news.sql in the Supabase SQL Editor.' : error.message);
     items = res.items || [];
     const okSrc = (res.sources || []).filter(x => x.ok && x.count).length;
-    document.getElementById('sub').textContent = `// LAST ${res.days || 7} DAYS · ${items.length} HEADLINES${res.sources ? ` FROM ${okSrc} SOURCES` : ''}`;
+    document.getElementById('sub').textContent = `// LAST ${res.days || 7} DAYS · ${items.length} HEADLINES${res.sources ? ` FROM ${okSrc} SOURCES` : ''}${res.checked_at ? ' · UPDATED ' + ago(res.checked_at).toUpperCase() : ''}`;
     render();
     if (!items.length){
       list.innerHTML = `<p class="note">No headlines came back. Here is what each news source returned:</p>
         ${res.sources ? `<div class="tbl-wrap"><table class="data"><tr><th>SOURCE</th><th>STATUS</th><th>DETAIL</th></tr>${sourceReport(res.sources)}</table></div>`
-          : '<p class="note">The server function is an older version. Redeploy <b>soc-api</b> from your repo.</p>'}`;
+          : '<p class="note">No news has been fetched yet. In the Supabase SQL Editor run: <b>select public.intel_refresh();</b></p>'}`;
     }
   } catch(e){
     list.innerHTML = `<p class="note">Intel feed offline: ${esc(e.message)}</p>`;
