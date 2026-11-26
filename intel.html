@@ -24,7 +24,6 @@
     <section class="page frame">
       <div class="page-head">
         <h1>INTEL<small id="sub">// CYBERSECURITY NEWS · LAST 7 DAYS</small></h1>
-        <div class="filters" id="srcs"></div>
       </div>
       <div class="page-body"><div class="intel-list" id="list"><p class="loading">DECRYPTING FEED</p></div></div>
     </section>
@@ -38,7 +37,7 @@
   await Core.init('INTEL');
   const { esc } = Core;
   const list = document.getElementById('list');
-  let items = [], src = 'ALL';
+  let items = [];
 
   const ago = iso => {
     if (!iso) return '';
@@ -47,15 +46,12 @@
   };
 
   function render(){
-    const srcs = ['ALL', ...new Set(items.map(i => i.source))];
-    const el = document.getElementById('srcs');
-    el.innerHTML = srcs.map(s => `<button class="fchip ${s === src ? 'on' : ''}" data-s="${esc(s)}">${esc(s.toUpperCase())}</button>`).join('');
-    el.querySelectorAll('button').forEach(b => b.onclick = () => { src = b.dataset.s; render(); });
-    list.innerHTML = items.filter(i => src === 'ALL' || i.source === src).map(i => `
+    list.innerHTML = items.map(i => `
       <a class="intel" href="${esc(i.link)}" target="_blank" rel="noopener noreferrer">
         <div class="meta"><span class="src">${esc(i.source)}</span><span>${ago(i.date)}</span></div>
         <h3>${esc(i.title)}</h3>
-        ${i.summary ? `<p>${esc(i.summary)}</p>` : ''}
+        <p>${i.summary ? esc(i.summary) : '<i>No summary available. Open the article to read more.</i>'}</p>
+        <span class="read">READ ARTICLE ▶</span>
       </a>`).join('') || '<p class="note">No headlines right now.</p>';
   }
 
@@ -67,7 +63,7 @@
     if (error) throw new Error(/intel_news/.test(error.message) ? 'News isn\'t set up yet. Run supabase/intel-news.sql in the Supabase SQL Editor.' : error.message);
     items = res.items || [];
     const okSrc = (res.sources || []).filter(x => x.ok && x.count).length;
-    document.getElementById('sub').textContent = `// LAST ${res.days || 7} DAYS · ${items.length} HEADLINES${res.sources ? ` FROM ${okSrc} SOURCES` : ''}${res.checked_at ? ' · UPDATED ' + ago(res.checked_at).toUpperCase() : ''}`;
+    document.getElementById('sub').textContent = `// LAST ${res.days || 7} DAYS · ${items.length} HEADLINES${res.sources ? ` FROM ${okSrc} SOURCE${okSrc === 1 ? '' : 'S'}` : ''}${res.checked_at ? ' · UPDATED ' + ago(res.checked_at).toUpperCase() : ''}`;
     render();
     if (!items.length){
       list.innerHTML = `<p class="note">No headlines came back. Here is what each news source returned:</p>

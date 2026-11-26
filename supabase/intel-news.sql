@@ -60,30 +60,51 @@ language sql immutable as $$
   '\s+', ' ', 'g')), '')
 $$;
 
--- download every feed and save the last 7 days of headlines
+-- turn feed/article text into a short readable summary (≈ the article's first lines)
+create or replace function public.intel_summary(t text) returns text
+language sql immutable as $$
+  select case when s is null or length(s) < 25 then null
+              when length(s) <= 320 then s
+              else regexp_replace(left(s, 320), '\s+\S*$', '') || '…' end
+  from (select nullif(btrim(regexp_replace(regexp_replace(public.intel_clean(t),
+          'The post .* appeared first on .*$', ''),
+          '\s*(\[(…|\.\.\.)\]|Continue reading.*|Read more.*|The post$)$', '')), '') as s) x
+$$;
+
+-- download every feed and save the last 7 days of headlines with a summary
 create or replace function public.intel_refresh() returns int
 language plpgsql security definer set search_path = public, extensions as $$
 declare
-  f record; resp record; body text; chunk text; parts text[];
+  f record; r record; resp record; body text; chunk text; parts text[];
   n int; total int := 0;
   v_title text; v_link text; v_date timestamptz; v_src text; v_sum text; raw_date text;
   ua constant text := 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 begin
   begin perform http_set_curlopt('CURLOPT_TIMEOUT', '8'); exception when others then null; end;
   for f in select * from (values
-      ('CISA',                 'https://www.cisa.gov/cybersecurity-advisories/all.xml', false),
-      ('CISA News',            'https://www.cisa.gov/news.xml', false),
-      ('The Hacker News',      'https://feeds.feedburner.com/TheHackersNews', false),
-      ('BleepingComputer',     'https://www.bleepingcomputer.com/feed/', false),
-      ('Krebs on Security',    'https://krebsonsecurity.com/feed/', false),
-      ('SecurityWeek',         'https://www.securityweek.com/feed/', false),
-      ('Dark Reading',         'https://www.darkreading.com/rss.xml', false),
-      ('The Record',           'https://therecord.media/feed', false),
-      ('SANS ISC',             'https://isc.sans.edu/rssfeed_full.xml', false),
-      ('Schneier on Security', 'https://www.schneier.com/feed/atom/', false),
-      ('Google News',          'https://news.google.com/rss/search?q=cybersecurity+OR+cyberattack+OR+ransomware+OR+%22data+breach%22+when:7d&hl=en-US&gl=US&ceid=US:en', true)
-    ) v(source, url, agg)
+      (1,  'CISA',                  'https://www.cisa.gov/cybersecurity-advisories/all.xml', false),
+      (2,  'CISA News',             'https://www.cisa.gov/news.xml', false),
+      (3,  'The Hacker News',       'https://feeds.feedburner.com/TheHackersNews', false),
+      (4,  'BleepingComputer',      'https://www.bleepingcomputer.com/feed/', false),
+      (5,  'Krebs on Security',     'https://krebsonsecurity.com/feed/', false),
+      (6,  'SecurityWeek',          'https://www.securityweek.com/feed/', false),
+      (7,  'Dark Reading',          'https://www.darkreading.com/rss.xml', false),
+      (8,  'The Record',            'https://therecord.media/feed', false),
+      (9,  'Infosecurity Magazine', 'https://www.infosecurity-magazine.com/rss/news/', false),
+      (10, 'Cybersecurity Dive',    'https://www.cybersecuritydive.com/feeds/news/', false),
+      (11, 'Malwarebytes Labs',     'https://www.malwarebytes.com/blog/feed/index.xml', false),
+      (12, 'SANS ISC',              'https://isc.sans.edu/rssfeed_full.xml', false),
+      (13, 'Schneier on Security',  'https://www.schneier.com/feed/atom/', false),
+      -- backstop only: used when the sources above return fewer than 10 stories
+      (99, 'Google News',           'https://news.google.com/rss/search?q=cybersecurity+OR+cyberattack+OR+ransomware+OR+%22data+breach%22+when:7d&hl=en-US&gl=US&ceid=US:en', true)
+    ) v(ord, source, url, agg) order by ord
   loop
+    if f.agg and total >= 10 then
+      insert into intel_status (source, ok, count, error, checked_at) values (f.source, true, 0, 'not needed', now())
+      on conflict (source) do update set ok = true, count = 0, error = 'not needed', checked_at = now();
+      delete from intel_items where link like 'https://news.google.com/%';
+      continue;
+    end if;
     n := 0;
     begin
       select * into resp from http((
@@ -101,8 +122,9 @@ begin
         raw_date := coalesce(intel_tag(chunk, 'pubDate'), intel_tag(chunk, 'dc:date'), intel_tag(chunk, 'published'), intel_tag(chunk, 'updated'));
         begin v_date := btrim(raw_date)::timestamptz; exception when others then v_date := null; end;
         v_src := f.source;
-        v_sum := left(intel_clean(coalesce(intel_tag(chunk, 'description'), intel_tag(chunk, 'summary'))), 240);
-        if f.agg then                                    -- Google News: "Headline - Publisher"
+        v_sum := coalesce(intel_summary(intel_tag(chunk, 'description')), intel_summary(intel_tag(chunk, 'summary')),
+                          intel_summary(intel_tag(chunk, 'content:encoded')), intel_summary(intel_tag(chunk, 'content')));
+        if f.agg then                                    -- Google News: "Headline - Publisher", no usable summary
           v_src   := coalesce(intel_clean(intel_tag(chunk, 'source')), 'Google News');
           v_title := regexp_replace(v_title, '\s+-\s+[^-]+$', '');
           v_sum   := null;
@@ -111,7 +133,8 @@ begin
                    or v_date < now() - interval '7 days' or v_date > now() + interval '1 day';
         insert into intel_items (link, source, title, summary, published)
         values (v_link, v_src, v_title, v_sum, v_date)
-        on conflict (link) do update set title = excluded.title, summary = excluded.summary, fetched_at = now();
+        on conflict (link) do update set title = excluded.title,
+          summary = coalesce(excluded.summary, intel_items.summary), fetched_at = now();
         n := n + 1;
       end loop;
       insert into intel_status (source, ok, count, error, checked_at) values (f.source, true, n, null, now())
@@ -122,6 +145,27 @@ begin
     end;
     total := total + n;
   end loop;
+
+  -- stories whose feed had no summary: read the article's own description (its first lines), up to 15 per run
+  for r in select link from intel_items
+            where summary is null and link not like 'https://news.google.com/%' and published >= now() - interval '7 days'
+            order by published desc limit 15
+  loop
+    begin
+      select * into resp from http(('GET', r.link, array[http_header('User-Agent', ua)], null, null)::http_request);
+      if resp.status = 200 then
+        body := left(resp.content, 200000);
+        v_sum := intel_summary(coalesce(
+          substring(body from '(?i)<meta[^>]*(?:property|name)=["'']og:description["''][^>]*content=["'']([^"'']*)'),
+          substring(body from '(?i)<meta[^>]*content=["'']([^"'']*)["''][^>]*(?:property|name)=["'']og:description'),
+          substring(body from '(?i)<meta[^>]*name=["'']description["''][^>]*content=["'']([^"'']*)'),
+          substring(body from '(?i)<article[^>]*>.*?<p[^>]*>(.*?)</p>')));
+        if v_sum is not null then update intel_items set summary = v_sum where link = r.link; end if;
+      end if;
+    exception when others then null;
+    end;
+  end loop;
+
   delete from intel_items where published < now() - interval '7 days';
   return total;
 end $$;
@@ -137,6 +181,8 @@ language sql stable security definer set search_path = public as $$
           select distinct on (lower(regexp_replace(title, '[^a-zA-Z0-9]', '', 'g')))
                  source, title, link, summary, published as date
             from intel_items where published >= now() - interval '7 days'
+             and (summary is not null      -- show stories with a summary; fall back to all if very few have one
+                  or (select count(*) from intel_items where summary is not null and published >= now() - interval '7 days') < 5)
            order by lower(regexp_replace(title, '[^a-zA-Z0-9]', '', 'g')), published desc
         ) d order by date desc limit 60
       ) x), '[]'::json),

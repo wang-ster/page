@@ -557,3 +557,11 @@ h4.lk-h{font-size:11px} h5.lk-h{font-size:9px}
 .review-body .lab-frame{height:100%}
 .grade-bar{display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 14px}
 .grade-bar .inp{width:auto}
+
+/* intel v2: summaries */
+.intel{padding:16px 18px}
+.intel h3{font-size:11px; margin-bottom:8px}
+.intel p{font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif; font-size:16px; line-height:1.5; color:#c4d6e8; margin-bottom:8px}
+.intel p i{color:var(--muted)}
+.intel .read{font-family:var(--font-head); font-size:7px; color:var(--accent); letter-spacing:1px}
+.intel:hover .read{color:var(--green)}
