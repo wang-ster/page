@@ -60,7 +60,7 @@ The anon key is designed to be public. The database rules decide what each perso
 | Award a diamond | **Operators →** the + button |
 | Reset a password | **Operators → Reset PW** |
 | Hand out a shop reward | **Requisitions → Fulfill** (Deny refunds the student) |
-| Post to students | **Announcements** |
+| Post to students | **Announcements** page (the form at the top is only visible to you) |
 | Change XP levels or coin rewards | **Ranks** |
 
 ## Lab Builder, Live Monitor and review
@@ -71,6 +71,9 @@ The anon key is designed to be public. The database rules decide what each perso
 - **Gradebook → View work** opens the same view for that submission.
 
 Students can paste a screenshot (**Ctrl+V**), drag it in, or choose a file. Screenshots are private: only that student and you can see them.
+
+## Backgrounds (everyone)
+Click the **gear → Background** to choose a scene (SOC Room, Calm Grid, Night Sky, Minimal), a color, how much to dim it, and whether it animates. **My image** turns any uploaded picture into pixel art (Chunky / Medium / Fine). Settings are saved for each user on that device, so students on shared computers each keep their own.
 
 ## Character Chart (CISO only)
 Open **Character** in the bottom bar.

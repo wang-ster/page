@@ -138,20 +138,19 @@
     const el = document.getElementById('nav'); if (!el) return;
     const items = [
       ['home','HOME','index.html'], ['terminal','LABS','labs.html'], ['medal','RANKS','milestones.html'],
-      ['chest','SHOP','shop.html'], ['radar','INTEL','intel.html'], ['envelope','ANNOUNCEMENTS','#ann']
+      ['chest','SHOP','shop.html'], ['radar','INTEL','intel.html'], ['envelope','ANNOUNCEMENTS','announcements.html']
     ];
     if (ME && ME.role === 'ciso') items.push(['star','CHARACTER','character.html'], ['shield','CONSOLE','console.html']);
     el.style.gridTemplateColumns = `repeat(${items.length},1fr)`;
     el.innerHTML = items.map(([ic,label,href]) =>
       `<a class="nav-btn ${label === active ? 'active' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${
         label === 'ANNOUNCEMENTS' ? '<span class="badge" data-ann hidden></span>' : ''}</a>`).join('');
-    el.querySelector('[href="#ann"]').onclick = e => { e.preventDefault(); showAnnouncements(); };
     hydrate(el);
   }
 
   function modal(html, opts = {}){
     const back = document.createElement('div');
-    back.className = 'modal-back';
+    back.className = 'modal-back' + (opts.side ? ' side' : '');
     back.innerHTML = `<div class="modal frame ${opts.wide ? 'wide' : ''}" role="dialog"><button class="x" data-close aria-label="Close">✕</button>${html}</div>`;
     document.body.appendChild(back);
     hydrate(back);
@@ -183,25 +182,20 @@
       document.querySelectorAll('[data-ann]').forEach(b => { b.hidden = !n; b.textContent = n; });
     } catch(e){}
   }
-  async function showAnnouncements(){
-    if (!annCache) await annBadge();
-    const items = (annCache || []).map(a =>
-      `<div class="brief"><small>${new Date(a.created_at).toLocaleDateString()}</small><h4>${esc(a.title)}</h4><p>${esc(a.body)}</p></div>`).join('');
-    modal(`<h3>ANNOUNCEMENTS</h3>${items || '<p class="note">No announcements yet.</p>'}`);
-    if (annCache && annCache[0]) store.set('soc.annSeen.' + ME.id, annCache[0].created_at);
+  function showAnnouncements(){ location.href = 'announcements.html'; }
+  function markAnnouncementsSeen(list){
+    if (list && list[0]) store.set('soc.annSeen.' + ME.id, list[0].created_at);
     document.querySelectorAll('[data-ann]').forEach(b => b.hidden = true);
   }
-
   function showSettings(){
-    const still = store.get('soc.still') === '1';
     const m = modal(`<h3>OPERATOR SETTINGS</h3>
       <p class="note">Signed in as <b>${esc(ME.username)}</b> · ${ME.role === 'ciso' ? 'Chief Information Security Officer' : 'Analyst'}</p>
       <div class="modal-list">
         <button class="op-row" id="sPw">${icon('lock')}<b>CHANGE PASSWORD</b></button>
-        <button class="op-row" id="sMotion">${icon('radar')}<b>ANIMATIONS</b><span>${still ? 'OFF' : 'ON'}</span></button>
+        <button class="op-row" id="sBg">${icon('star')}<b>BACKGROUND</b><span>${BG_SCENES[bgGet().scene] || ''}</span></button>
         <button class="op-row" id="sOut">${icon('arrow')}<b>LOG OUT</b></button>
       </div>`);
-    m.el.querySelector('#sMotion').onclick = () => { store.set('soc.still', still ? '0' : '1'); location.reload(); };
+    m.el.querySelector('#sBg').onclick = () => { m.close(); showBackground(); };
     m.el.querySelector('#sOut').onclick = async () => { await sb.auth.signOut(); location.replace('login.html'); };
     m.el.querySelector('#sPw').onclick = () => {
       m.close();
@@ -232,9 +226,8 @@
   }
 
   /* ---------------- SPLASH: pixel SOC room ---------------- */
-  function splash(){
-    const cv = document.getElementById('splash'); if (!cv) return;
-    const W = 320, H = 180, ctx = cv.getContext('2d');
+  function sceneSOC(cv, still, my){
+    const W = 320, H = 180; cv.width = W; cv.height = H; const ctx = cv.getContext('2d');
     let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
     const b = bg.getContext('2d');
@@ -338,10 +331,9 @@
     }
     const bars = Array.from({length:6}, () => 10 + rnd()*40);
     const logs = Array.from({length:16}, () => ({ len: 4 + rnd()*24, col: rnd() < .15 ? '#ff3b5c' : '#39ff88' }));
-    const still = store.get('soc.still') === '1';
-
     let t = 0, last = 0;
     function frame(now){
+      if (my !== sceneToken) return;                 // a newer background replaced this one
       if (!still) requestAnimationFrame(frame);
       if (now - last < 66 && !still) return;
       last = now; t++;
@@ -434,6 +426,199 @@
     }, 5000);
   }
 
+  /* ---------------- BACKGROUNDS ----------------
+     Saved per user on this device. scene: soc | calm | sky | minimal | image
+     theme tints built-in scenes; dim darkens any scene so panels stand out.        */
+  const BG_DEFAULT = { scene: 'soc', theme: 'cyan', dim: 40, pixel: 'medium' };
+  const BG_SCENES = { soc: 'SOC ROOM', calm: 'CALM GRID', sky: 'NIGHT SKY', minimal: 'MINIMAL', image: 'MY IMAGE' };
+  const BG_THEMES = {
+    cyan:    { label: 'CYAN',    swatch: '#3df0ff', filter: 'none' },
+    emerald: { label: 'EMERALD', swatch: '#39ff88', filter: 'hue-rotate(-45deg) saturate(1.1)' },
+    violet:  { label: 'VIOLET',  swatch: '#b48cff', filter: 'hue-rotate(75deg)' },
+    amber:   { label: 'AMBER',   swatch: '#ffb347', filter: 'hue-rotate(-155deg) saturate(1.2)' },
+    crimson: { label: 'CRIMSON', swatch: '#ff5c7a', filter: 'hue-rotate(160deg)' },
+    mono:    { label: 'MONO',    swatch: '#b8c4d0', filter: 'grayscale(1) brightness(.95)' }
+  };
+  const PIXEL_W = { chunky: 112, medium: 192, fine: 320 };
+  let sceneToken = 0;
+  const bgKey = k => `soc.${k}.${ME ? ME.id : 'last'}`;
+  function bgGet(){
+    try { return { ...BG_DEFAULT, ...JSON.parse(store.get(bgKey('bg')) || (ME ? '{}' : store.get('soc.bg.last')) || '{}') }; }
+    catch(e){ return { ...BG_DEFAULT }; }
+  }
+  function bgSave(v){ const j = JSON.stringify(v); store.set(bgKey('bg'), j); store.set('soc.bg.last', j); }
+  const bgImg = () => (ME ? store.get(bgKey('bgimg')) : store.get('soc.bgimg.last')) || null;
+
+  // small dithered vertical gradient helper for calm scenes
+  const bayer4 = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+  function dither(c, cols, y0, y1, W){
+    for (let y = y0; y < y1; y++){
+      const t = ((y - y0) / (y1 - y0)) * (cols.length - 1), i = Math.floor(t), f = t - i;
+      for (let x = 0; x < W; x++){ c.fillStyle = cols[Math.min(cols.length - 1, f > bayer4[(y%4)*4 + x%4]/16 ? i+1 : i)]; c.fillRect(x, y, 1, 1); }
+    }
+  }
+  function loop(my, still, fps, draw){
+    let last = 0, t = 0;
+    const f = now => { if (my !== sceneToken) return; if (!still) requestAnimationFrame(f);
+      if (!still && now - last < 1000 / fps) return; last = now; draw(t++); };
+    requestAnimationFrame(f);
+  }
+
+  function sceneCalm(cv, still, my){                 // slow perspective grid + faint stars
+    const W = 320, H = 180; cv.width = W; cv.height = H; const c = cv.getContext('2d');
+    const bg = document.createElement('canvas'); bg.width = W; bg.height = H; const b = bg.getContext('2d');
+    dither(b, ['#02050c','#040a18','#071226','#0a1a34'], 0, 112, W);
+    dither(b, ['#081830','#040a16','#02050c'], 112, H, W);
+    let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const stars = Array.from({length: 40}, () => [rnd()*W|0, rnd()*95|0, rnd()*6.28]);
+    loop(my, still, 12, t => {
+      c.drawImage(bg, 0, 0);
+      stars.forEach(([x, y, p]) => { const v = (Math.sin(t*0.05 + p) + 1) / 2; c.fillStyle = `rgba(160,220,255,${0.15 + v*0.35})`; c.fillRect(x, y, 1, 1); });
+      c.fillStyle = 'rgba(61,240,255,.35)'; c.fillRect(0, 112, W, 1);
+      c.fillStyle = 'rgba(61,240,255,.08)'; c.fillRect(0, 108, W, 4);
+      c.fillStyle = 'rgba(61,240,255,.16)';
+      for (let i = -12; i <= 12; i++){ for (let y = 113; y < H; y += 1){ const x = 160 + i * 14 * ((y - 108) / 12); if (x >= 0 && x < W) c.fillRect(x|0, y, 1, 1); } }
+      const off = (t * 0.25) % 1;
+      for (let k = 0; k < 9; k++){ const z = k + off, y = 112 + Math.pow(z, 2) * 0.85; if (y < H) c.fillRect(0, y|0, W, 1); }
+    });
+  }
+
+  function sceneSky(cv, still, my){                  // night sky, moon, hills
+    const W = 320, H = 180; cv.width = W; cv.height = H; const c = cv.getContext('2d');
+    const bg = document.createElement('canvas'); bg.width = W; bg.height = H; const b = bg.getContext('2d');
+    dither(b, ['#02040b','#050b1c','#0a1630','#122244','#1a2f55'], 0, H, W);
+    const disc = (cx, cy, r, col) => { b.fillStyle = col; for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x*x + y*y <= r*r) b.fillRect(cx+x, cy+y, 1, 1); };
+    disc(250, 40, 16, 'rgba(200,230,255,.06)'); disc(250, 40, 11, '#cfe6ff'); disc(254, 37, 10, '#e9f4ff');
+    const ridge = (base, amp, fr, col, ph) => { b.fillStyle = col; for (let x = 0; x < W; x++){ const top = base - Math.abs(Math.sin(x*fr + ph) + Math.sin(x*fr*2.3 + ph*2)/2) * amp; b.fillRect(x, top|0, 1, H); } };
+    ridge(150, 22, 0.017, '#0b1a33', 1); ridge(165, 16, 0.024, '#07101f', 3); ridge(176, 6, 0.05, '#040912', 5);
+    let seed = 9; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const stars = Array.from({length: 70}, () => [rnd()*W|0, rnd()*120|0, rnd()*6.28, rnd()]);
+    loop(my, still, 8, t => {
+      c.drawImage(bg, 0, 0);
+      stars.forEach(([x, y, p, s]) => { const v = (Math.sin(t*0.08*(0.5+s) + p) + 1) / 2; c.fillStyle = `rgba(220,236,255,${0.2 + v*0.6})`; c.fillRect(x, y, 1, 1); });
+    });
+  }
+
+  function sceneMinimal(cv, still, my){               // quiet gradient + dot grid, no motion
+    const W = 320, H = 180; cv.width = W; cv.height = H; const c = cv.getContext('2d');
+    dither(c, ['#02050c','#040b18','#06112a','#040b18'], 0, H, W);
+    c.fillStyle = 'rgba(61,240,255,.07)';
+    for (let y = 6; y < H; y += 12) for (let x = 6; x < W; x += 12) c.fillRect(x, y, 1, 1);
+  }
+
+  function sceneImage(cv, still, my){
+    const src = bgImg(); if (!src) return sceneMinimal(cv, still, my);
+    const img = new Image();
+    img.onload = () => { if (my !== sceneToken) return; cv.width = img.width; cv.height = img.height; cv.getContext('2d').drawImage(img, 0, 0); };
+    img.src = src;
+  }
+
+  // the background behind every page
+  function splash(){
+    const cv = document.getElementById('splash'); if (!cv) return;
+    const v = bgGet(), still = store.get('soc.still') === '1', my = ++sceneToken;
+    let dim = document.getElementById('bgDim');
+    if (!dim){ dim = document.createElement('div'); dim.id = 'bgDim'; dim.className = 'bg-dim'; cv.after(dim); }
+    dim.style.background = `rgba(2,5,12,${Math.max(0, Math.min(90, +v.dim || 0)) / 100})`;
+    const scene = v.scene === 'image' && !bgImg() ? 'soc' : v.scene;
+    cv.style.filter = scene === 'image' ? 'none' : (BG_THEMES[v.theme] || BG_THEMES.cyan).filter;
+    ({ soc: sceneSOC, calm: sceneCalm, sky: sceneSky, minimal: sceneMinimal, image: sceneImage }[scene] || sceneSOC)(cv, still, my);
+  }
+
+  // turn an uploaded photo into pixel art: shrink, then reduce colours
+  function pixelize(dataUrl, pixel){
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const w = PIXEL_W[pixel] || PIXEL_W.medium, h = Math.max(1, Math.round(img.height * w / img.width));
+        // shrink in steps so the result stays smooth before posterizing
+        let cur = img, cw = img.width, ch = img.height;
+        while (cw / 2 > w){ const t = document.createElement('canvas'); t.width = cw = Math.round(cw / 2); t.height = ch = Math.round(ch / 2); t.getContext('2d').drawImage(cur, 0, 0, cw, ch); cur = t; }
+        const out = document.createElement('canvas'); out.width = w; out.height = h;
+        const c = out.getContext('2d'); c.drawImage(cur, 0, 0, w, h);
+        const d = c.getImageData(0, 0, w, h), a = d.data, L = 7, step = 255 / (L - 1);
+        for (let i = 0; i < a.length; i += 4){
+          const e = (bayer4[((i/4/w|0)%4)*4 + (i/4%w)%4] / 16 - 0.5) * step * 0.6;   // ordered dither
+          for (let k = 0; k < 3; k++) a[i+k] = Math.round(Math.min(255, Math.max(0, a[i+k] + e)) / step) * step;
+        }
+        c.putImageData(d, 0, 0);
+        res(out.toDataURL('image/png'));
+      };
+      img.onerror = () => rej(new Error('That file is not an image this browser can read.'));
+      img.src = dataUrl;
+    });
+  }
+
+  function showBackground(){
+    const v = bgGet();
+    const draw = () => {
+      const has = !!bgImg();
+      m.el.querySelector('.modal').innerHTML = `<button class="x" data-close aria-label="Close">✕</button>
+        <h3>BACKGROUND</h3>
+        <label class="lbl">SCENE</label>
+        <div class="filters">${Object.entries(BG_SCENES).map(([k, l]) =>
+          `<button class="fchip ${v.scene === k ? 'on' : ''}" data-scene="${k}" ${k === 'image' && !has ? 'disabled title="Upload an image first"' : ''}>${l}</button>`).join('')}</div>
+        <label class="lbl">COLOR ${v.scene === 'image' ? '<span class="hint">(built-in scenes only)</span>' : ''}</label>
+        <div class="filters">${Object.entries(BG_THEMES).map(([k, t]) =>
+          `<button class="swatch ${v.theme === k ? 'on' : ''}" data-theme="${k}" title="${t.label}" style="--sw:${t.swatch}"><i></i>${t.label}</button>`).join('')}</div>
+        <label class="lbl">DIM BACKGROUND · <span id="dimVal">${v.dim}%</span></label>
+        <input type="range" min="0" max="85" step="5" value="${v.dim}" id="dim" class="range">
+        <label class="lbl">ANIMATION</label>
+        <div class="filters">${['ON','OFF'].map(x => `<button class="fchip ${(store.get('soc.still') === '1') === (x === 'OFF') ? 'on' : ''}" data-anim="${x}">${x}</button>`).join('')}</div>
+        <label class="lbl">MY IMAGE <span class="hint">(turned into pixel art · stays on this device)</span></label>
+        <div class="bg-img-row">
+          ${has ? `<img src="${bgImg()}" class="bg-thumb" alt="Your background">` : '<div class="bg-thumb empty">NO IMAGE</div>'}
+          <div class="filters" style="flex-direction:column; align-items:flex-start; gap:8px">
+            <button class="btn sm" id="pick">${has ? 'CHANGE IMAGE' : 'UPLOAD IMAGE'}</button>
+            <div class="filters">${Object.keys(PIXEL_W).map(k => `<button class="fchip ${v.pixel === k ? 'on' : ''}" data-pixel="${k}" ${has ? '' : 'disabled'}>${k.toUpperCase()}</button>`).join('')}</div>
+            ${has ? '<button class="btn sm red" id="rmImg">REMOVE IMAGE</button>' : ''}
+          </div>
+          <input type="file" accept="image/*" id="imgFile" hidden>
+        </div>
+        <p class="err" id="bgErr"></p>
+        <div class="modal-actions"><button class="btn ghost" id="reset">RESET TO DEFAULT</button><button class="btn green" data-close>DONE</button></div>`;
+      hydrate(m.el);
+      const q = s => m.el.querySelector(s), qa = s => m.el.querySelectorAll(s);
+      const apply = () => { bgSave(v); splash(); draw(); };
+      qa('[data-scene]').forEach(b => b.onclick = () => { v.scene = b.dataset.scene; apply(); });
+      qa('[data-theme]').forEach(b => b.onclick = () => { v.theme = b.dataset.theme; apply(); });
+      qa('[data-anim]').forEach(b => b.onclick = () => {
+        const off = b.dataset.anim === 'OFF'; store.set('soc.still', off ? '1' : '0');
+        document.documentElement.classList.toggle('still', off); apply();
+      });
+      q('#dim').oninput = e => { v.dim = +e.target.value; q('#dimVal').textContent = v.dim + '%'; bgSave(v);
+        document.getElementById('bgDim').style.background = `rgba(2,5,12,${v.dim / 100})`; };
+      const repixel = async () => {
+        const srcKey = bgKey('bgsrc'), src = store.get(srcKey); if (!src) return;
+        const px = await pixelize(src, v.pixel); store.set(bgKey('bgimg'), px); store.set('soc.bgimg.last', px);
+      };
+      q('#pick').onclick = () => q('#imgFile').click();
+      q('#imgFile').onchange = async e => {
+        const f = e.target.files[0]; if (!f) return;
+        if (!/^image\//.test(f.type)) return q('#bgErr').textContent = 'Please choose an image file.';
+        try {
+          const raw = await new Promise((r, j) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = j; fr.readAsDataURL(f); });
+          // keep a modest copy of the original so the pixel size can be changed later
+          const img = await new Promise((r, j) => { const i = new Image(); i.onload = () => r(i); i.onerror = () => j(new Error('Unreadable image.')); i.src = raw; });
+          const k = Math.min(1, 800 / img.width), t = document.createElement('canvas');
+          t.width = Math.round(img.width * k); t.height = Math.round(img.height * k); t.getContext('2d').drawImage(img, 0, 0, t.width, t.height);
+          store.set(bgKey('bgsrc'), t.toDataURL('image/jpeg', 0.85));
+          await repixel();
+          if (!store.get(bgKey('bgimg'))) throw new Error('This browser could not save the image (storage may be full).');
+          v.scene = 'image'; apply();
+        } catch(err){ q('#bgErr').textContent = err.message; }
+      };
+      qa('[data-pixel]').forEach(b => b.onclick = async () => { v.pixel = b.dataset.pixel; await repixel(); apply(); });
+      const rm = q('#rmImg'); if (rm) rm.onclick = () => {
+        store.set(bgKey('bgimg'), ''); store.set(bgKey('bgsrc'), ''); store.set('soc.bgimg.last', '');
+        if (v.scene === 'image') v.scene = 'soc'; apply();
+      };
+      q('#reset').onclick = () => { Object.assign(v, BG_DEFAULT); store.set('soc.still', '0'); document.documentElement.classList.remove('still'); apply(); };
+    };
+    const m = modal('', { side: true });
+    draw();
+  }
+
   /* ---------------- page bootstrap ---------------- */
   // Visuals start immediately; HUD/nav fill in once the login is verified.
   async function init(active, opts = {}){
@@ -442,11 +627,16 @@
     const me = await guard();
     if (opts.ciso && me.role !== 'ciso'){ location.replace('index.html'); return never(); }
     renderHUD(); renderNav(active); annBadge(); startIdleWatch();
+    // show this user's own background (the login screen used whoever logged in last on this device)
+    const mine = store.get(bgKey('bg')) || '{}', myImg = store.get(bgKey('bgimg')) || '';
+    if (mine !== (store.get('soc.bg.last') || '{}') || myImg !== (store.get('soc.bgimg.last') || '')){
+      store.set('soc.bg.last', mine); store.set('soc.bgimg.last', myImg); splash();
+    }
     return me;
   }
 
   window.Core = {
     init, sb, api, must, configured, refreshMe, get me(){ return ME; },
-    hydrate, splash, icon, esc, modal, confirmBox, toast, store, showAnnouncements, cfg: CFG
+    hydrate, splash, showBackground, markAnnouncementsSeen, icon, esc, modal, confirmBox, toast, store, showAnnouncements, cfg: CFG
   };
 })();

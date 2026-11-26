@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOC Command — Announcements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/settings.js"></script>
+<script src="assets/core.js"></script>
+<script src="assets/labkit.js"></script>
+</head>
+<body>
+<canvas id="splash" width="320" height="180"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header id="hud" class="hud frame"></header>
+  <div id="ticker" class="ticker"></div>
+
+  <main class="stage sub">
+    <section class="page frame">
+      <div class="page-head">
+        <h1>ANNOUNCEMENTS<small id="sub">// FROM YOUR CISO</small></h1>
+      </div>
+      <div class="page-body">
+        <div class="panel-box" id="post" hidden>
+          <h3>POST AN ANNOUNCEMENT</h3>
+          <label class="lbl">TITLE</label><input class="inp" id="at" placeholder="e.g. Quiz on Friday">
+          <label class="lbl">MESSAGE</label><textarea class="inp" id="ab" placeholder="Supports **bold**, lists, links…"></textarea>
+          <button class="btn green" id="go" style="margin-top:10px">POST</button>
+        </div>
+        <div class="ann-list" id="list"><p class="loading">LOADING</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="nav" class="nav frame"></footer>
+</div>
+
+<script>
+(async () => {
+  const me = await Core.init('ANNOUNCEMENTS');
+  const { sb, esc, must, toast, confirmBox } = Core;
+  const $ = s => document.getElementById(s);
+  const isCiso = me.role === 'ciso';
+  // remember what was new before marking everything as read
+  const seenBefore = Core.store.get('soc.annSeen.' + me.id) || '';
+
+  async function load(){
+    const rows = must(await sb.from('announcements').select('*').order('created_at', { ascending: false }));
+    $('sub').textContent = `// ${rows.length} ANNOUNCEMENT${rows.length === 1 ? '' : 'S'}`;
+    $('list').innerHTML = rows.map(a => `
+      <article class="ann frame sm ${a.created_at > seenBefore ? 'new' : ''}" data-id="${a.id}">
+        <div class="ann-head">
+          <span class="ann-date">${new Date(a.created_at).toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' })}
+            · ${new Date(a.created_at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}</span>
+          ${a.created_at > seenBefore ? '<span class="stamp new">NEW</span>' : ''}
+          ${isCiso ? '<button class="btn sm red" data-del>DELETE</button>' : ''}
+        </div>
+        <h2>${esc(a.title)}</h2>
+        <div class="ann-body">${LabKit.md(a.body)}</div>
+      </article>`).join('') || '<p class="note">No announcements yet.</p>';
+    Core.markAnnouncementsSeen(rows);
+    document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if (!await confirmBox('DELETE ANNOUNCEMENT', 'Remove this announcement for everyone?', 'DELETE', true)) return;
+      try { must(await sb.from('announcements').delete().eq('id', b.closest('[data-id]').dataset.id)); load(); toast('DELETED'); }
+      catch(e){ toast('ERROR', e.message); }
+    });
+  }
+
+  if (isCiso){
+    $('post').hidden = false;
+    $('go').onclick = async () => {
+      const title = $('at').value.trim(); if (!title) return toast('TITLE NEEDED', 'Give the announcement a title.');
+      try { must(await sb.from('announcements').insert({ title, body: $('ab').value.trim() }));
+            $('at').value = ''; $('ab').value = ''; toast('POSTED', 'Students will see it now.'); load(); }
+      catch(e){ toast('ERROR', e.message); }
+    };
+  }
+  load();
+})();
+</script>
+</body>
+</html>
